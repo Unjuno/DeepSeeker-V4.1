@@ -1,10 +1,11 @@
 # Machine Profile — M1 Max 64GB (target machine, sanitized)
 
-Date: 2026-09-18 (JST)
-DeepSeeker commit: `a9b722a8737540d413c6bf97a247152af89a06d9`
-Upstream `deepseek-ai/DeepSeek-V4.1-Flash` revision (resolved via HfApi, `main`):
+Date: 2026-09-18 (JST), updated same day with upstream fetch + GPU/CPU/SSD baselines
+DeepSeeker commit: `f1c6fb0` at time of update (`docs: add sanitized M1 Max 64GB machine profile`)
+Upstream `deepseek-ai/DeepSeek-V4.1-Flash` revision (`main`):
 `dba1be0a40aa45a94ad051997016db3960a90277`
-Full `python scripts/fetch_upstream.py` (code-only download + manifest): pending.
+`python scripts/fetch_upstream.py`: DONE 2026-09-18, code-only (18 files),
+weights excluded, manifest at `upstream/DEEPSEEKER_UPSTREAM.json` (git-ignored).
 
 > Privacy: this file contains only performance-relevant data.
 > No serial numbers, hardware UUIDs, volume UUIDs, hostnames, usernames,
@@ -54,8 +55,13 @@ pmset -g
   `xcodebuild -version` fails (CLT instance). Full-Xcode install is pending
   (user-approved) and required for the Metal toolchain.
 - Metal toolchain: `xcrun metal -v` → `unable to find utility "metal"`.
-  Status: unavailable until full Xcode is installed. GPU kernel baselines (§6)
-  are therefore pending.
+  Status 2026-09-18: still unavailable. Full Xcode cannot be installed from
+  the CLI — `softwareupdate --list` offers no Xcode (App Store distribution
+  only), `mas` is not installed, `/Applications/Xcode.app` is absent.
+  Full-Xcode install requires a manual App Store step by the machine owner.
+  GPU kernel baselines below therefore use MLX (prebuilt metallib, no Xcode
+  needed) instead of hand-written Metal kernels — custom Metal tuning stays
+  blocked on the App Store install.
 - Compiler: Apple clang 21.0.0 (`clang-2100.3.34.2`),
   Target `arm64-apple-darwin25.6.0`
 - Python: 3.14.5 (both system `python3` and Homebrew `python3` report 3.14.5)
@@ -125,15 +131,85 @@ async multi-outstanding reads, ≥several-minute sustained reads,
 throttling check, expert-object-sized reads after upstream layout inspection.
 `sudo` steps need explicit user confirmation per session policy.
 
-## 5. GPU / Metal baseline
+## 5. GPU baseline via MLX 0.32.2 (no Xcode required)
 
-- Static: 32-core M1 Max GPU, Metal 4 — confirmed via `SPDisplaysDataType`.
-- Kernel numbers (FP16/BF16 GEMM, FP8/FP4 decode, GEMV batch-1,
-  batches 2/4/8/16, grouped GEMM, fused SwiGLU, launch overhead,
-  command-buffer overlap, sustained runs): pending full Xcode + Metal
-  toolchain and DeepSeek expert-shape verification (§6).
+Method: `.venv` with `pip install mlx`, `mx.default_device()=Device(gpu, 0)`,
+`mx.eval()`-synchronized timing, warmup + 20 measured iterations,
+median/min/max reported. Shapes use the real upstream expert dims
+(`hidden_size=5120`, `moe_intermediate_size=2304`, fp16).
 
-## 6. CPU control plane / accelerators / DeepSeek baselines
+Upstream expert dims (from fetched `config.json`, `text_config`):
+`hidden_size=5120`, `moe_intermediate_size=2304`, `n_routed_experts=384`,
+`num_experts_per_tok=6`, `n_shared_experts=1`, `num_hidden_layers=40`,
+base `dtype=bfloat16`, experts `fp4` (`quantization_config.expert_dtype`).
+
+### 5a. Unified Memory bandwidth (GPU STREAM triad, fp16, 256 MiB)
+
+`c = a + b*2.0`, traffic = 3×256 MiB, 20 iters: med 4.62 ms
+(min 4.09, max 18.54) → ~162.2 GiB/s. Single-stream figure, not peak;
+CPU+GPU simultaneous and multi-minute sustained runs still TODO (§4).
+(An earlier `astype` no-op micro-test read 2354 GiB/s — discarded as a
+fused-away no-op, kept here as a warning against lazy-eval artifacts.)
+
+### 5b. MoE gate GEMM 5120×2304 fp16 (per expert)
+
+| batch | med ms | min | max | GFLOPS(med) |
+|---|---|---|---|---|
+| 1 | 0.597 | 0.526 | 2.006 | 39.5 |
+| 2 | 0.604 | 0.503 | 1.860 | 78.2 |
+| 4 | 0.610 | 0.487 | 1.765 | 154.7 |
+| 8 | 0.554 | 0.500 | 2.077 | 340.4 |
+| 16 | 0.578 | 0.503 | 1.749 | 653.0 |
+
+### 5c. MoE down GEMM 2304×5120 fp16
+
+| batch | med ms | min | max | GFLOPS(med) |
+|---|---|---|---|---|
+| 6 (one token × 6 experts) | 0.799 | 0.683 | 2.398 | 177.2 |
+| 12 | 0.733 | 0.672 | 1.849 | 386.2 |
+
+### 5d. SwiGLU elementwise 6×2304 fp16 (`gate*silu(up)`)
+
+med 0.487 ms (min 0.413, max 1.742). Unfused separate-ops reference;
+a fused kernel is future work.
+
+Reading: batch-1 latency is flat (~0.55–0.60 ms) across batches 1–16 —
+launch-overhead dominated, expected for decode. Wide min/max spread shows
+first-iteration/GC effects; medians are the comparison baseline.
+
+## 6. CPU baselines (numpy 2.5.3, fp32, same expert shapes)
+
+| op | batch | med ms | min | max | GFLOPS(med) |
+|---|---|---|---|---|---|
+| gate 5120×2304 | 1 | 1.38 | 1.23 | 1.64 | 17.1 |
+| gate 5120×2304 | 2 | 1.77 | 1.68 | 2.16 | 26.7 |
+| gate 5120×2304 | 4 | 1.82 | 1.70 | 2.09 | 51.9 |
+| gate 5120×2304 | 8 | 0.98 | 0.94 | 1.22 | 192.7 |
+| gate 5120×2304 | 16 | 1.04 | 0.90 | 1.90 | 361.3 |
+| down 2304×5120 | 6 | 3.82 | 3.58 | 4.16 | 37.0 |
+
+CPU SwiGLU elementwise 6×2304 fp32: med 0.034 ms. Small-batch inversions
+(e.g. batch-8 med < batch-4) are BLAS threading/tiling effects, reported
+as-is over 10 iters. CPU stays the control plane; these numbers exist to
+prove GPU is required for the data plane, not to qualify CPU compute.
+
+## 7. SSD sustained (2 GiB disposable file, F_NOCACHE, 4 KB blocks seq)
+
+180 s sequential re-read loop, 30 s buckets (MiB/s):
+5182 / 5247 / 5165 / 5090 / 5050 / ~5129 avg (901.6 GiB total).
+No throttling signature across buckets in the tested path.
+60 s random 1 MiB re-reads: 287552 ops, ~4793 MiB/s, ~209 us avg latency.
+
+Caveat (honest): `F_NOCACHE` is advisory and the 2 GiB file fits in the
+64 GiB page cache, so a cache-resident component cannot be excluded —
+compare the earlier 1 GiB single-run read (2193 MiB/s) vs this run
+(5129 MiB/s); methodology differs, both provisional. True cold-storage
+verification needs `sudo purge` + retest, which requires interactive sudo
+confirmation and was NOT run here. Pending: purge-controlled cold reads,
+mmap/page-fault latency, async multi-outstanding, expert-object-sized
+reads after upstream layout inspection.
+
+## 8. CPU control plane / accelerators / DeepSeek baselines
 
 Pending implementation + reference runs (§7–§9): routing-trace rate,
 transition-table update rate, prediction latency, cache decision latency,
@@ -141,22 +217,22 @@ async I/O overhead, scheduler overhead/token, Core ML/accelerator comparison,
 unoptimized DeepSeek prompt/decode tokens/s with full reporting
 (hardware, OS, revisions, context, batch/speculation, warmup, median+range).
 
-## 7. Minimum-profile status (against §15)
+## 9. Minimum-profile status (against §15)
 
 - [x] exact M1 Max CPU/GPU configuration
 - [x] 64 GB Unified Memory confirmed
 - [x] macOS + kernel version
-- [ ] Xcode / Metal environment — CLT only; full Xcode + `xcrun metal` pending
+- [ ] Xcode / Metal environment — CLT only; full Xcode needs manual App Store install (CLI impossible, verified 2026-09-18); MLX GPU path works without it
 - [ ] effective stable resident-memory budget — pending load testing
-- [ ] sustained SSD read bandwidth — first single-run numbers only
-- [ ] effective Unified Memory bandwidth — numpy CPU sanity only
-- [ ] batch-1 GEMV baseline — pending
-- [ ] batched / grouped GEMM baseline — pending
+- [~] sustained SSD read bandwidth — 180 s loop stable ~5.1 GB/s but cache-residency caveat; purge-controlled retest pending
+- [~] effective Unified Memory bandwidth — GPU STREAM triad ~162 GiB/s single-stream; simultaneous CPU+GPU + sustained pending
+- [x] batch-1 GEMV baseline — MLX fp16 gate 0.597 ms med (§5b), numpy fp32 1.38 ms (§6)
+- [x] batched / grouped GEMM baseline — batches 2/4/8/16 done; grouped GEMM + FP4/FP8 decode paths pending
 - [ ] unoptimized DeepSeek decode tokens/s — pending
 - [ ] unoptimized DeepSeek prompt tokens/s — pending
-- [x] upstream DeepSeek commit SHA — resolved `dba1be0...90277`; full fetch manifest pending
+- [x] upstream DeepSeek commit SHA — `dba1be0a40aa45a94ad051997016db3960a90277`, fetch manifest recorded
 
-Next actions: install full Xcode → `xcrun metal -v` → run
-`scripts/fetch_upstream.py` (records immutable manifest) → sustained
-memory/SSD/GPU baselines with medians, ranges, buffer sizes, iteration
-counts, thermal notes.
+Next actions: owner installs full Xcode from App Store → `xcrun metal -v` →
+`sudo purge`-controlled SSD retest (needs sudo confirmation) → sustained
+CPU+GPU bandwidth → unoptimized DeepSeek reference runs (prompt/decode
+tokens/s separated) → routing-trace instrumentation.
