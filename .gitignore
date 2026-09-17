@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Local benchmark / profiling output
+artifacts/
+benchmarks/results/
+profiles/
+*.trace
+*.prof
+*.jsonl
+
+# Models / weights
+models/
+weights/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Upstream source fetched at runtime. Keep only its documentation.
+upstream/*
+!upstream/README.md
+
+# Hugging Face cache
+.cache/
