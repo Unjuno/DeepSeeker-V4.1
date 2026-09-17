@@ -31,6 +31,8 @@ Initial optimization target:
 
 Other Apple Silicon systems may work later, but portability is not the first objective.
 
+Before optimization work, collect the target-machine baseline defined in [docs/MACHINE_PROFILE.md](docs/MACHINE_PROFILE.md).
+
 ## Planned optimization surface
 
 DeepSeeker is intentionally broader than a MoE cache experiment. Candidate work includes:
@@ -75,6 +77,7 @@ See [docs/UPSTREAM.md](docs/UPSTREAM.md) and [THIRD_PARTY_NOTICES.md](THIRD_PART
 .
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── MACHINE_PROFILE.md
 │   ├── ROADMAP.md
 │   └── UPSTREAM.md
 ├── scripts/
