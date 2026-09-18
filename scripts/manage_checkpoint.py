@@ -253,6 +253,35 @@ def cmd_download(args) -> int:
                     "size": info.size,
                     "sha256": lfs.sha256 if lfs else None,
                 }
+
+        def handle_result(shard: str, result: dict) -> None:
+            nonlocal total_new
+            entry = state["files"].get(shard, {})
+            if result["status"] == "downloaded":
+                total_new += result["bytes"]
+                entry.update(
+                    {
+                        "status": "downloaded-unverified",
+                        "size": infos[shard]["size"],
+                        "sha256": result["sha256"],
+                        "downloaded_bytes": result["bytes"],
+                        "resumed_bytes": result.get("resumed_bytes", 0),
+                    }
+                )
+            elif result["status"] == "reused-verified":
+                pass
+            else:
+                entry.update({"status": result["status"], "detail": str(result)[:300]})
+                print(f"{shard}: {result['status']}")
+            state["files"][shard] = entry
+            atomic_write_json(state_path(root), state)
+            done = sum(
+                1
+                for f in state["files"].values()
+                if f.get("status") in ("downloaded-unverified", "verified")
+            )
+            print(f"[{done}/{len(shards)}] {shard}: {result['status']}", flush=True)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
             futures = {
                 pool.submit(
@@ -268,33 +297,52 @@ def cmd_download(args) -> int:
                 for shard in shards
             }
             for fut in concurrent.futures.as_completed(futures):
-                result = fut.result()
                 shard = futures[fut]
-                entry = state["files"].get(shard, {})
-                if result["status"] == "downloaded":
-                    entry.update(
-                        {
-                            "status": "downloaded-unverified",
-                            "size": infos[shard]["size"],
-                            "sha256": result["sha256"],
-                            "downloaded_bytes": result["bytes"],
-                            "resumed_bytes": result.get("resumed_bytes", 0),
+                try:
+                    result = fut.result()
+                except Exception as exc:  # noqa: BLE001 - keep going
+                    result = {
+                        "file": shard,
+                        "status": "download-error",
+                        "detail": f"{type(exc).__name__}: {exc}"[:300],
+                    }
+                handle_result(shard, result)
+                if stop.is_set():
+                    break
+            # Retry failed shards (transient errors, bad ranges) up to
+            # two more times; checksum failures restart the shard fresh.
+            for attempt in (2, 3):
+                if stop.is_set():
+                    break
+                failed = [
+                    s
+                    for s in shards
+                    if state["files"].get(s, {}).get("status")
+                    not in ("downloaded-unverified", "verified", "reused-verified")
+                ]
+                if not failed:
+                    break
+                print(f"retry pass {attempt}: {len(failed)} shards", flush=True)
+                for shard in failed:
+                    if stop.is_set():
+                        break
+                    try:
+                        result = _download_shard(
+                            root,
+                            revision,
+                            shard,
+                            infos[shard]["size"],
+                            infos[shard]["sha256"],
+                            state,
+                            stop,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - keep going
+                        result = {
+                            "file": shard,
+                            "status": "download-error",
+                            "detail": f"{type(exc).__name__}: {exc}"[:300],
                         }
-                    )
-                    total_new += result["bytes"]
-                elif result["status"] == "reused-verified":
-                    pass
-                else:
-                    entry.update({"status": result["status"], "detail": str(result)[:300]})
-                    print(f"{shard}: {result['status']}")
-                state["files"][shard] = entry
-                atomic_write_json(state_path(root), state)
-                done = sum(
-                    1
-                    for f in state["files"].values()
-                    if f.get("status") in ("downloaded-unverified", "verified")
-                )
-                print(f"[{done}/{len(shards)}] {shard}: {result['status']}", flush=True)
+                    handle_result(shard, result)
         for name in (
             "model.safetensors.index.json",
             "tokenizer.json",
