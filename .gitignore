@@ -28,6 +28,14 @@ profiles/m1-max-64gb/*
 !profiles/m1-max-64gb/machine.json
 !profiles/m1-max-64gb/benchmark.json
 !profiles/m1-max-64gb/README.md
+profiles/deepseek-v4.1-flash/*
+!profiles/deepseek-v4.1-flash/
+!profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/
+profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/*
+# Canonical tensor manifest for the pinned upstream revision only
+# (a new revision needs an explicit, reviewed .gitignore update)
+!profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/model-manifest.json
+!profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/storage-summary.md
 *.trace
 *.prof
 *.jsonl
