@@ -42,7 +42,7 @@ from deepseeker.checkpoint import (
 )
 
 REPO_ID = "deepseek-ai/DeepSeek-V4.1-Flash"
-CONCURRENCY = 6
+CONCURRENCY = 3
 
 
 def pinned_revision() -> str | None:
@@ -237,6 +237,7 @@ def cmd_download(args) -> int:
 
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
+    pass_number = 0
     started = time.perf_counter()
     total_new = 0
     try:
@@ -282,60 +283,50 @@ def cmd_download(args) -> int:
             )
             print(f"[{done}/{len(shards)}] {shard}: {result['status']}", flush=True)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-            futures = {
-                pool.submit(
-                    _download_shard,
-                    root,
-                    revision,
-                    shard,
-                    infos[shard]["size"],
-                    infos[shard]["sha256"],
-                    state,
-                    stop,
-                ): shard
-                for shard in shards
-            }
-            for fut in concurrent.futures.as_completed(futures):
-                shard = futures[fut]
-                try:
-                    result = fut.result()
-                except Exception as exc:  # noqa: BLE001 - keep going
-                    result = {
-                        "file": shard,
-                        "status": "download-error",
-                        "detail": f"{type(exc).__name__}: {exc}"[:300],
-                    }
-                handle_result(shard, result)
-                if stop.is_set():
-                    break
-            # Retry failed shards (transient errors, bad ranges) up to
-            # two more times; checksum failures restart the shard fresh.
-            for attempt in (2, 3):
-                if stop.is_set():
-                    break
-                failed = [
-                    s
-                    for s in shards
-                    if state["files"].get(s, {}).get("status")
-                    not in ("downloaded-unverified", "verified", "reused-verified")
-                ]
-                if not failed:
-                    break
-                print(f"retry pass {attempt}: {len(failed)} shards", flush=True)
-                for shard in failed:
+        pass_number = 0
+        while not stop.is_set():
+            pass_number += 1
+            pending = [
+                s
+                for s in shards
+                if state["files"].get(s, {}).get("status")
+                not in ("downloaded-unverified", "verified")
+            ]
+            if not pending:
+                break
+            if pass_number > 1:
+                print(
+                    f"pass {pass_number}: {len(pending)} shards pending; backing off 60s",
+                    flush=True,
+                )
+                for _ in range(60):
                     if stop.is_set():
                         break
+                    time.sleep(1)
+            if stop.is_set():
+                break
+            print(
+                f"pass {pass_number}: downloading {len(pending)} shards",
+                flush=True,
+            )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+                futures = {
+                    pool.submit(
+                        _download_shard,
+                        root,
+                        revision,
+                        shard,
+                        infos[shard]["size"],
+                        infos[shard]["sha256"],
+                        state,
+                        stop,
+                    ): shard
+                    for shard in pending
+                }
+                for fut in concurrent.futures.as_completed(futures):
+                    shard = futures[fut]
                     try:
-                        result = _download_shard(
-                            root,
-                            revision,
-                            shard,
-                            infos[shard]["size"],
-                            infos[shard]["sha256"],
-                            state,
-                            stop,
-                        )
+                        result = fut.result()
                     except Exception as exc:  # noqa: BLE001 - keep going
                         result = {
                             "file": shard,
@@ -343,6 +334,49 @@ def cmd_download(args) -> int:
                             "detail": f"{type(exc).__name__}: {exc}"[:300],
                         }
                     handle_result(shard, result)
+                    if stop.is_set():
+                        break
+                # Retry failed shards (transient errors, bad ranges) up to
+                # two more times; checksum failures restart fresh.
+                for attempt in (2, 3):
+                    if stop.is_set():
+                        break
+                    failed = [
+                        s
+                        for s in pending
+                        if state["files"].get(s, {}).get("status")
+                        not in (
+                            "downloaded-unverified",
+                            "verified",
+                            "reused-verified",
+                        )
+                    ]
+                    if not failed:
+                        break
+                    print(
+                        f"retry pass {attempt}: {len(failed)} shards",
+                        flush=True,
+                    )
+                    for shard in failed:
+                        if stop.is_set():
+                            break
+                        try:
+                            result = _download_shard(
+                                root,
+                                revision,
+                                shard,
+                                infos[shard]["size"],
+                                infos[shard]["sha256"],
+                                state,
+                                stop,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - keep going
+                            result = {
+                                "file": shard,
+                                "status": "download-error",
+                                "detail": (f"{type(exc).__name__}: {exc}")[:300],
+                            }
+                        handle_result(shard, result)
         for name in (
             "model.safetensors.index.json",
             "tokenizer.json",
