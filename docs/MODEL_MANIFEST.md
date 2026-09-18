@@ -63,8 +63,18 @@ ts = [t for t in m["tensors"] if t.get("layer") == 12
 # 6 tensors, one shard, each with data_range + file_range for random access
 ```
 
-## Residency rule (documented in manifest)
+## Residency rule (corrected by Issue #3)
 
-Streamable = `routed-expert` + `mtp-expert` only; everything else is
-always-needed for planning. Vision/Engram conditionality is a planning
-concern for the next issue, not encoded here.
+The manifest's `streamable = routed-expert + mtp-expert` split was a
+checkpoint-size classification, not a runtime claim. Engram access
+analysis (`python scripts/analyze_engram_access.py`,
+`profiles/.../engram-access.json`) proves the 189.13 GiB Engram tables
+are conditional sparse memory, not residency:
+
+- useful table payload is 12,672 B/token (2 layers x 24 rows x 264 B);
+- row ids exactly reproduce official `NgramHashState` hashing (tested);
+- every row maps to exact shard/file ranges from this manifest;
+- dense per-layer Engram weights (~157.5 MB x 2) stay resident candidates;
+- verdict: row-stream the tables with a modest row/page cache
+  (16–64 MiB covers measured working sets), keep dense weights resident.
+  Physical SSD latency is still unmeasured — simulation only.

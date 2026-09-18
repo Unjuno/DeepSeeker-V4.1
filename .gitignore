@@ -36,6 +36,8 @@ profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/*
 # (a new revision needs an explicit, reviewed .gitignore update)
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/model-manifest.json
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/storage-summary.md
+!profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/engram-access.json
+!profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/engram-access-summary.md
 *.trace
 *.prof
 *.jsonl

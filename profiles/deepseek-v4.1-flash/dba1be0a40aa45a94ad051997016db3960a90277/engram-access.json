@@ -1,0 +1,624 @@
+{
+ "schema": "deepseeker.engram-access/v1",
+ "upstream_revision": "dba1be0a40aa45a94ad051997016db3960a90277",
+ "generated_at_utc": "2026-09-18T01:43:43.927812+00:00",
+ "geometry": {
+  "layer_ids": [
+   1,
+   14
+  ],
+  "n_layers": 2,
+  "n_heads": 8,
+  "hash_cols": 24,
+  "row_pairs_per_token": 48,
+  "weight_row_bytes": 256,
+  "scale_row_bytes": 8,
+  "pair_bytes": 264,
+  "useful_bytes_per_token": 12672,
+  "dense_bytes_per_layer": {
+   "1": 157521920,
+   "14": 157521920
+  },
+  "weight_scale_same_shard": true
+ },
+ "corpora": {
+  "english_prose": {
+   "tokens": 192,
+   "requested_row_pairs": 9216,
+   "unique_row_pairs": 2400,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 2400,
+    "median_gap": 2304,
+    "max_gap": 2304
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 384,
+    "32": 1536,
+    "128": 2400,
+    "512": 2400,
+    "2048": 2400
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.7396,
+    "64": 0.7396,
+    "256": 0.7396,
+    "1024": 0.7396,
+    "4096": 0.7396,
+    "8192": 0.7396
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0,
+     "64": 0.7396,
+     "256": 0.7396,
+     "1024": 0.7396,
+     "4096": 0.7396,
+     "8192": 0.7396
+    },
+    "16384": {
+     "16": 0.0002,
+     "64": 0.0006,
+     "256": 0.7397,
+     "1024": 0.7397,
+     "4096": 0.7397,
+     "8192": 0.7397
+    }
+   },
+   "useful_bytes_total": 2433024,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 4938,
+     "bytes": 20226048,
+     "ratio": 8.313
+    },
+    "16384": {
+     "pages": 4826,
+     "bytes": 79069184,
+     "ratio": 32.498
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 4800,
+     "bytes": 633600,
+     "ops_per_token": 25.0,
+     "bytes_per_token": 3300.0
+    },
+    "4096": {
+     "read_ops": 4800,
+     "bytes": 633600,
+     "ops_per_token": 25.0,
+     "bytes_per_token": 3300.0
+    },
+    "65536": {
+     "read_ops": 4747,
+     "bytes": 2635208,
+     "ops_per_token": 24.72,
+     "bytes_per_token": 13725.0
+    }
+   }
+  },
+  "japanese_prose": {
+   "tokens": 299,
+   "requested_row_pairs": 14352,
+   "unique_row_pairs": 3680,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 3680,
+    "median_gap": 3600,
+    "max_gap": 3600
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 384,
+    "32": 1536,
+    "128": 3680,
+    "512": 3680,
+    "2048": 3680
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.7436,
+    "64": 0.7436,
+    "256": 0.7436,
+    "1024": 0.7436,
+    "4096": 0.7436,
+    "8192": 0.7436
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0052,
+     "64": 0.7438,
+     "256": 0.7438,
+     "1024": 0.7438,
+     "4096": 0.7438,
+     "8192": 0.7438
+    },
+    "16384": {
+     "16": 0.0008,
+     "64": 0.007,
+     "256": 0.7443,
+     "1024": 0.7443,
+     "4096": 0.7443,
+     "8192": 0.7443
+    }
+   },
+   "useful_bytes_total": 3788928,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 7586,
+     "bytes": 31072256,
+     "ratio": 8.201
+    },
+    "16384": {
+     "pages": 7397,
+     "bytes": 121192448,
+     "ratio": 31.986
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 7360,
+     "bytes": 971520,
+     "ops_per_token": 24.62,
+     "bytes_per_token": 3249.2
+    },
+    "4096": {
+     "read_ops": 7349,
+     "bytes": 994312,
+     "ops_per_token": 24.58,
+     "bytes_per_token": 3325.5
+    },
+    "65536": {
+     "read_ops": 7232,
+     "bytes": 4767288,
+     "ops_per_token": 24.19,
+     "bytes_per_token": 15944.1
+    }
+   }
+  },
+  "source_code": {
+   "tokens": 297,
+   "requested_row_pairs": 14256,
+   "unique_row_pairs": 4464,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 4464,
+    "median_gap": 4752,
+    "max_gap": 4752
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 384,
+    "32": 1536,
+    "128": 4464,
+    "512": 4464,
+    "2048": 4464
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.6869,
+    "64": 0.6869,
+    "256": 0.6869,
+    "1024": 0.6869,
+    "4096": 0.6869,
+    "8192": 0.6869
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0796,
+     "64": 0.6873,
+     "256": 0.6873,
+     "1024": 0.6873,
+     "4096": 0.6873,
+     "8192": 0.6873
+    },
+    "16384": {
+     "16": 0.0477,
+     "64": 0.0812,
+     "256": 0.6879,
+     "1024": 0.6879,
+     "4096": 0.6879,
+     "8192": 0.6879
+    }
+   },
+   "useful_bytes_total": 3763584,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 9223,
+     "bytes": 37777408,
+     "ratio": 10.038
+    },
+    "16384": {
+     "pages": 8972,
+     "bytes": 146997248,
+     "ratio": 39.058
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 8928,
+     "bytes": 1178496,
+     "ops_per_token": 30.06,
+     "bytes_per_token": 3968.0
+    },
+    "4096": {
+     "read_ops": 8912,
+     "bytes": 1204544,
+     "ops_per_token": 30.01,
+     "bytes_per_token": 4055.7
+    },
+    "65536": {
+     "read_ops": 8706,
+     "bytes": 8393088,
+     "ops_per_token": 29.31,
+     "bytes_per_token": 28259.6
+    }
+   }
+  },
+  "repetitive": {
+   "tokens": 240,
+   "requested_row_pairs": 11520,
+   "unique_row_pairs": 384,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 384,
+    "median_gap": 288,
+    "max_gap": 288
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 368,
+    "32": 384,
+    "128": 384,
+    "512": 384,
+    "2048": 384
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.9667,
+    "64": 0.9667,
+    "256": 0.9667,
+    "1024": 0.9667,
+    "4096": 0.9667,
+    "8192": 0.9667
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.9667,
+     "64": 0.9667,
+     "256": 0.9667,
+     "1024": 0.9667,
+     "4096": 0.9667,
+     "8192": 0.9667
+    },
+    "16384": {
+     "16": 0.9667,
+     "64": 0.9667,
+     "256": 0.9667,
+     "1024": 0.9667,
+     "4096": 0.9667,
+     "8192": 0.9667
+    }
+   },
+   "useful_bytes_total": 3041280,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 797,
+     "bytes": 3264512,
+     "ratio": 1.073
+    },
+    "16384": {
+     "pages": 772,
+     "bytes": 12648448,
+     "ratio": 4.159
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 768,
+     "bytes": 101376,
+     "ops_per_token": 3.2,
+     "bytes_per_token": 422.4
+    },
+    "4096": {
+     "read_ops": 768,
+     "bytes": 101376,
+     "ops_per_token": 3.2,
+     "bytes_per_token": 422.4
+    },
+    "65536": {
+     "read_ops": 766,
+     "bytes": 159880,
+     "ops_per_token": 3.19,
+     "bytes_per_token": 666.2
+    }
+   }
+  },
+  "random_tokens": {
+   "tokens": 256,
+   "requested_row_pairs": 12288,
+   "unique_row_pairs": 12288,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 12288,
+    "median_gap": null,
+    "max_gap": null
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 384,
+    "32": 1536,
+    "128": 6144,
+    "512": 12288,
+    "2048": 12288
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.0,
+    "64": 0.0,
+    "256": 0.0,
+    "1024": 0.0,
+    "4096": 0.0,
+    "8192": 0.0
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0006,
+     "64": 0.002,
+     "256": 0.0023,
+     "1024": 0.0023,
+     "4096": 0.0023,
+     "8192": 0.0023
+    },
+    "16384": {
+     "16": 0.0007,
+     "64": 0.0024,
+     "256": 0.0074,
+     "1024": 0.0084,
+     "4096": 0.0084,
+     "8192": 0.0084
+    }
+   },
+   "useful_bytes_total": 3244032,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 25265,
+     "bytes": 103485440,
+     "ratio": 31.9
+    },
+    "16384": {
+     "pages": 24566,
+     "bytes": 402489344,
+     "ratio": 124.071
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 24576,
+     "bytes": 3244032,
+     "ops_per_token": 96.0,
+     "bytes_per_token": 12672.0
+    },
+    "4096": {
+     "read_ops": 24469,
+     "bytes": 3437672,
+     "ops_per_token": 95.58,
+     "bytes_per_token": 13428.4
+    },
+    "65536": {
+     "read_ops": 23040,
+     "bytes": 52731208,
+     "ops_per_token": 90.0,
+     "bytes_per_token": 205981.3
+    }
+   }
+  },
+  "short_prompt": {
+   "tokens": 4,
+   "requested_row_pairs": 192,
+   "unique_row_pairs": 192,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 192,
+    "median_gap": null,
+    "max_gap": null
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 192,
+    "32": 192,
+    "128": 192,
+    "512": 192,
+    "2048": 192
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.0,
+    "64": 0.0,
+    "256": 0.0,
+    "1024": 0.0,
+    "4096": 0.0,
+    "8192": 0.0
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0,
+     "64": 0.0,
+     "256": 0.0,
+     "1024": 0.0,
+     "4096": 0.0,
+     "8192": 0.0
+    },
+    "16384": {
+     "16": 0.0,
+     "64": 0.0,
+     "256": 0.0,
+     "1024": 0.0,
+     "4096": 0.0,
+     "8192": 0.0
+    }
+   },
+   "useful_bytes_total": 50688,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 401,
+     "bytes": 1642496,
+     "ratio": 32.404
+    },
+    "16384": {
+     "pages": 391,
+     "bytes": 6406144,
+     "ratio": 126.384
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 384,
+     "bytes": 50688,
+     "ops_per_token": 96.0,
+     "bytes_per_token": 12672.0
+    },
+    "4096": {
+     "read_ops": 384,
+     "bytes": 50688,
+     "ops_per_token": 96.0,
+     "bytes_per_token": 12672.0
+    },
+    "65536": {
+     "read_ops": 384,
+     "bytes": 50688,
+     "ops_per_token": 96.0,
+     "bytes_per_token": 12672.0
+    }
+   }
+  },
+  "long_prompt": {
+   "tokens": 2664,
+   "requested_row_pairs": 127872,
+   "unique_row_pairs": 10351,
+   "requested_per_token": 48.0,
+   "unique_per_token": 48.0,
+   "duplicate_rows_within_token_total": 0,
+   "reuse": {
+    "first_touch": 10351,
+    "median_gap": 10656,
+    "max_gap": 10656
+   },
+   "consecutive_overlap": {
+    "mean": 0.0,
+    "min": 0,
+    "max": 0
+   },
+   "window_unique_prefix": {
+    "8": 384,
+    "32": 1536,
+    "128": 6128,
+    "512": 10351,
+    "2048": 10351
+   },
+   "row_lru_hit_rate_by_mib": {
+    "16": 0.9191,
+    "64": 0.9191,
+    "256": 0.9191,
+    "1024": 0.9191,
+    "4096": 0.9191,
+    "8192": 0.9191
+   },
+   "page_lru_hit_rate_by_mib": {
+    "4096": {
+     "16": 0.0353,
+     "64": 0.0456,
+     "256": 0.9193,
+     "1024": 0.9193,
+     "4096": 0.9193,
+     "8192": 0.9193
+    },
+    "16384": {
+     "16": 0.0217,
+     "64": 0.0371,
+     "256": 0.0528,
+     "1024": 0.9196,
+     "4096": 0.9196,
+     "8192": 0.9196
+    }
+   },
+   "useful_bytes_total": 33758208,
+   "useful_bytes_per_token": 12672.0,
+   "amplification": {
+    "4096": {
+     "pages": 21306,
+     "bytes": 87269376,
+     "ratio": 2.585
+    },
+    "16384": {
+     "pages": 20703,
+     "bytes": 339197952,
+     "ratio": 10.048
+    }
+   },
+   "coalesced": {
+    "0": {
+     "read_ops": 20702,
+     "bytes": 2732664,
+     "ops_per_token": 7.77,
+     "bytes_per_token": 1025.8
+    },
+    "4096": {
+     "read_ops": 20614,
+     "bytes": 2884488,
+     "ops_per_token": 7.74,
+     "bytes_per_token": 1082.8
+    },
+    "65536": {
+     "read_ops": 19579,
+     "bytes": 37838120,
+     "ops_per_token": 7.35,
+     "bytes_per_token": 14203.5
+    }
+   }
+  }
+ },
+ "tokenizer_bytes": 6368058,
+ "weight_bytes_downloaded": 0,
+ "conclusion": "Useful Engram table payload is 12672 B/token (2 layers x 24 rows x 264 B), versus 189.13 GiB of tables. Large tables are conditional sparse memory: row-stream with a modest row/page cache, keep the ~315 MB dense per-layer weights resident. Physical SSD latency remains unmeasured (simulation only)."
+}
