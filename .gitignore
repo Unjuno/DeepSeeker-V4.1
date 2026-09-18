@@ -33,6 +33,7 @@ profiles/m1-max-64gb/*
 !profiles/m1-max-64gb/memory-capacity.json
 !profiles/m1-max-64gb/resident-plan.json
 !profiles/m1-max-64gb/resident-plan.md
+!profiles/m1-max-64gb/checkpoint-status.json
 profiles/deepseek-v4.1-flash/*
 !profiles/deepseek-v4.1-flash/
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/
