@@ -145,8 +145,8 @@ def download_range(
             with urllib.request.urlopen(probe, timeout=timeout) as resp:
                 if resp.status == 206:
                     continue  # more data: rotate to a fresh connection
-        except Exception:
-            pass
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass  # probe failed: treat current position as EOF
         break
     return received
 
