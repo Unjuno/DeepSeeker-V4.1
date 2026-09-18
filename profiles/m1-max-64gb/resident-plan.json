@@ -1,0 +1,1852 @@
+{
+ "schema": "deepseeker.resident-plan/v1",
+ "upstream_revision": "dba1be0a40aa45a94ad051997016db3960a90277",
+ "generated_at_utc": "2026-09-18T02:26:51.838713+00:00",
+ "operating_bytes": 47244640256,
+ "capacity_source": "memory-capacity.json",
+ "common_model_bytes": {
+  "bytes": 9543532616,
+  "parts": {
+   "attention": 5069721600,
+   "embedding": 1323857920,
+   "kv-index": 81835008,
+   "lm-head": 1323827200,
+   "norm": 829440,
+   "router": 157409280,
+   "shared-expert": 1416960000,
+   "unknown": 169092168
+  }
+ },
+ "dense_engram_bytes": {
+  "bytes": 315043840,
+  "provenance": "manifest"
+ },
+ "lookup_table_bytes_total": 202758032400,
+ "lookup_table_resident_bytes": 0,
+ "lookup_table_policy": "conditional row-stream + cache (Issue #3); never fully resident",
+ "engram_cache_benefit_hit_rate": {
+  "16": {
+   "english_prose": 0.7396,
+   "japanese_prose": 0.7436,
+   "source_code": 0.6869,
+   "repetitive": 0.9667,
+   "random_tokens": 0.0,
+   "short_prompt": 0.0,
+   "long_prompt": 0.9191
+  },
+  "64": {
+   "english_prose": 0.7396,
+   "japanese_prose": 0.7436,
+   "source_code": 0.6869,
+   "repetitive": 0.9667,
+   "random_tokens": 0.0,
+   "short_prompt": 0.0,
+   "long_prompt": 0.9191
+  },
+  "256": {
+   "english_prose": 0.7396,
+   "japanese_prose": 0.7436,
+   "source_code": 0.6869,
+   "repetitive": 0.9667,
+   "random_tokens": 0.0,
+   "short_prompt": 0.0,
+   "long_prompt": 0.9191
+  }
+ },
+ "storage_modes": {
+  "optimistic": {
+   "label": "cache-served upper bound (measured QD8)",
+   "expert_ms": 0.8981249993667006,
+   "provenance": "measured-cache"
+  },
+  "advisory": {
+   "label": "advisory-uncached QD1 (measured)",
+   "expert_ms": 0.9561250044498593,
+   "provenance": "measured-advisory"
+  },
+  "unknown-cold": {
+   "label": "user-parameterized conservative cold guess",
+   "expert_ms": 2.87,
+   "provenance": "assumed"
+  }
+ },
+ "scenarios": {
+  "S1": {
+   "4096": {
+    "scenario": "S1@4096",
+    "context_tokens": 4096,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 28311552,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 536870912,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 32768,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 35514408960,
+      "provenance": "manifest",
+      "note": "1889 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 15183800,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1889,
+    "slots_per_layer_even": 47.23,
+    "pct_of_all_experts": 12.3,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1896,
+      "pct": 12.34
+     },
+     "4": {
+      "slots": 1893,
+      "pct": 12.32
+     },
+     "8": {
+      "slots": 1889,
+      "pct": 12.3
+     },
+     "16": {
+      "slots": 1881,
+      "pct": 12.25
+     },
+     "32": {
+      "slots": 1865,
+      "pct": 12.14
+     }
+    }
+   },
+   "32768": {
+    "scenario": "S1@32768",
+    "context_tokens": 32768,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 226492416,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 4294967296,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 262144,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 31566274560,
+      "provenance": "manifest",
+      "note": "1679 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 6811576,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1679,
+    "slots_per_layer_even": 41.98,
+    "pct_of_all_experts": 10.93,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1686,
+      "pct": 10.98
+     },
+     "4": {
+      "slots": 1683,
+      "pct": 10.96
+     },
+     "8": {
+      "slots": 1679,
+      "pct": 10.93
+     },
+     "16": {
+      "slots": 1671,
+      "pct": 10.88
+     },
+     "32": {
+      "slots": 1655,
+      "pct": 10.77
+     }
+    }
+   },
+   "131072": {
+    "scenario": "S1@131072",
+    "context_tokens": 131072,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 905969664,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 17179869184,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 1048576,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 17992212480,
+      "provenance": "manifest",
+      "note": "957 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 15708088,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 957,
+    "slots_per_layer_even": 23.93,
+    "pct_of_all_experts": 6.23,
+    "pool_if_staging": {
+     "1": {
+      "slots": 964,
+      "pct": 6.28
+     },
+     "4": {
+      "slots": 961,
+      "pct": 6.26
+     },
+     "8": {
+      "slots": 957,
+      "pct": 6.23
+     },
+     "16": {
+      "slots": 949,
+      "pct": 6.18
+     },
+     "32": {
+      "slots": 933,
+      "pct": 6.07
+     }
+    }
+   },
+   "524288": {
+    "scenario": "S1@524288",
+    "context_tokens": 524288,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 36252741704,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 3623878656,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 68719476736,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 4194304,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -36252741704,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   },
+   "1048576": {
+    "scenario": "S1@1048576",
+    "context_tokens": 1048576,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 108600291400,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 7247757312,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 137438953472,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 8388608,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -108600291400,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   }
+  },
+  "S2": {
+   "4096": {
+    "scenario": "S2@4096",
+    "context_tokens": 4096,
+    "features": {
+     "mtp": true,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10245164360,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 28311552,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 536870912,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 32768,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 56401920,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 34762383360,
+      "provenance": "manifest",
+      "note": "1849 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 9175736,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1849,
+    "slots_per_layer_even": 46.23,
+    "pct_of_all_experts": 12.04,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1856,
+      "pct": 12.08
+     },
+     "4": {
+      "slots": 1853,
+      "pct": 12.06
+     },
+     "8": {
+      "slots": 1849,
+      "pct": 12.04
+     },
+     "16": {
+      "slots": 1841,
+      "pct": 11.99
+     },
+     "32": {
+      "slots": 1825,
+      "pct": 11.88
+     }
+    }
+   },
+   "32768": {
+    "scenario": "S2@32768",
+    "context_tokens": 32768,
+    "features": {
+     "mtp": true,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10245164360,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 226492416,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 4294967296,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 262144,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 56401920,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 30814248960,
+      "provenance": "manifest",
+      "note": "1639 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 803512,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1639,
+    "slots_per_layer_even": 40.98,
+    "pct_of_all_experts": 10.67,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1646,
+      "pct": 10.72
+     },
+     "4": {
+      "slots": 1643,
+      "pct": 10.7
+     },
+     "8": {
+      "slots": 1639,
+      "pct": 10.67
+     },
+     "16": {
+      "slots": 1631,
+      "pct": 10.62
+     },
+     "32": {
+      "slots": 1615,
+      "pct": 10.51
+     }
+    }
+   },
+   "131072": {
+    "scenario": "S2@131072",
+    "context_tokens": 131072,
+    "features": {
+     "mtp": true,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10245164360,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 905969664,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 17179869184,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 1048576,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 56401920,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 17240186880,
+      "provenance": "manifest",
+      "note": "917 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 9700024,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 917,
+    "slots_per_layer_even": 22.93,
+    "pct_of_all_experts": 5.97,
+    "pool_if_staging": {
+     "1": {
+      "slots": 924,
+      "pct": 6.02
+     },
+     "4": {
+      "slots": 921,
+      "pct": 6.0
+     },
+     "8": {
+      "slots": 917,
+      "pct": 5.97
+     },
+     "16": {
+      "slots": 909,
+      "pct": 5.92
+     },
+     "32": {
+      "slots": 893,
+      "pct": 5.81
+     }
+    }
+   },
+   "524288": {
+    "scenario": "S2@524288",
+    "context_tokens": 524288,
+    "features": {
+     "mtp": true,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 37010775368,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10245164360,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 3623878656,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 68719476736,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 4194304,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 56401920,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -37010775368,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   },
+   "1048576": {
+    "scenario": "S2@1048576",
+    "context_tokens": 1048576,
+    "features": {
+     "mtp": true,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 109358325064,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10245164360,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 7247757312,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 137438953472,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 8388608,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 56401920,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -109358325064,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   }
+  },
+  "S3": {
+   "4096": {
+    "scenario": "S3@4096",
+    "context_tokens": 4096,
+    "features": {
+     "mtp": false,
+     "vision": true
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10514038856,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 28311552,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 536870912,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 32768,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 34555576320,
+      "provenance": "manifest",
+      "note": "1838 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 3510200,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1838,
+    "slots_per_layer_even": 45.95,
+    "pct_of_all_experts": 11.97,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1845,
+      "pct": 12.01
+     },
+     "4": {
+      "slots": 1842,
+      "pct": 11.99
+     },
+     "8": {
+      "slots": 1838,
+      "pct": 11.97
+     },
+     "16": {
+      "slots": 1830,
+      "pct": 11.91
+     },
+     "32": {
+      "slots": 1814,
+      "pct": 11.81
+     }
+    }
+   },
+   "32768": {
+    "scenario": "S3@32768",
+    "context_tokens": 32768,
+    "features": {
+     "mtp": false,
+     "vision": true
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 10514038856,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 226492416,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 4294967296,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 262144,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 30588641280,
+      "provenance": "manifest",
+      "note": "1627 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 13938616,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1627,
+    "slots_per_layer_even": 40.67,
+    "pct_of_all_experts": 10.59,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1634,
+      "pct": 10.64
+     },
+     "4": {
+      "slots": 1631,
+      "pct": 10.62
+     },
+     "8": {
+      "slots": 1627,
+      "pct": 10.59
+     },
+     "16": {
+      "slots": 1619,
+      "pct": 10.54
+     },
+     "32": {
+      "slots": 1603,
+      "pct": 10.44
+     }
+    }
+   }
+  },
+  "S4": {
+   "4096": {
+    "scenario": "S4@4096",
+    "context_tokens": 4096,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 28311552,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 536870912,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 32768,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 35514408960,
+      "provenance": "manifest",
+      "note": "1889 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 15183800,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1889,
+    "slots_per_layer_even": 47.23,
+    "pct_of_all_experts": 12.3,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1896,
+      "pct": 12.34
+     },
+     "4": {
+      "slots": 1893,
+      "pct": 12.32
+     },
+     "8": {
+      "slots": 1889,
+      "pct": 12.3
+     },
+     "16": {
+      "slots": 1881,
+      "pct": 12.25
+     },
+     "32": {
+      "slots": 1865,
+      "pct": 12.14
+     }
+    }
+   },
+   "32768": {
+    "scenario": "S4@32768",
+    "context_tokens": 32768,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 226492416,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 4294967296,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 262144,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 31566274560,
+      "provenance": "manifest",
+      "note": "1679 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 6811576,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 1679,
+    "slots_per_layer_even": 41.98,
+    "pct_of_all_experts": 10.93,
+    "pool_if_staging": {
+     "1": {
+      "slots": 1686,
+      "pct": 10.98
+     },
+     "4": {
+      "slots": 1683,
+      "pct": 10.96
+     },
+     "8": {
+      "slots": 1679,
+      "pct": 10.93
+     },
+     "16": {
+      "slots": 1671,
+      "pct": 10.88
+     },
+     "32": {
+      "slots": 1655,
+      "pct": 10.77
+     }
+    }
+   },
+   "131072": {
+    "scenario": "S4@131072",
+    "context_tokens": 131072,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": false,
+    "shortfall_bytes": 0,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 905969664,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 17179869184,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 1048576,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 17992212480,
+      "provenance": "manifest",
+      "note": "957 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": 15708088,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 957,
+    "slots_per_layer_even": 23.93,
+    "pct_of_all_experts": 6.23,
+    "pool_if_staging": {
+     "1": {
+      "slots": 964,
+      "pct": 6.28
+     },
+     "4": {
+      "slots": 961,
+      "pct": 6.26
+     },
+     "8": {
+      "slots": 957,
+      "pct": 6.23
+     },
+     "16": {
+      "slots": 949,
+      "pct": 6.18
+     },
+     "32": {
+      "slots": 933,
+      "pct": 6.07
+     }
+    }
+   },
+   "524288": {
+    "scenario": "S4@524288",
+    "context_tokens": 524288,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 36252741704,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 3623878656,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 68719476736,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 4194304,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -36252741704,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   },
+   "1048576": {
+    "scenario": "S4@1048576",
+    "context_tokens": 1048576,
+    "features": {
+     "mtp": false,
+     "vision": false
+    },
+    "operating_bytes": 47244640256,
+    "over_budget": true,
+    "shortfall_bytes": 108600291400,
+    "components": [
+     {
+      "name": "common-model",
+      "bytes": 9543532616,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "dense-engram",
+      "bytes": 315043840,
+      "provenance": "manifest",
+      "note": ""
+     },
+     {
+      "name": "kv-cache",
+      "bytes": 7247757312,
+      "provenance": "arch-estimate",
+      "note": "4 groups x (512+64) x 2B x ctx x 1.5"
+     },
+     {
+      "name": "index-state",
+      "bytes": 137438953472,
+      "provenance": "arch-estimate",
+      "note": "8 layers x 32 x 128 x 2B (rough) x ctx x 2.0, HIGH uncertainty"
+     },
+     {
+      "name": "token-ids",
+      "bytes": 8388608,
+      "provenance": "arch-estimate",
+      "note": "8B/token"
+     },
+     {
+      "name": "runtime-fixed",
+      "bytes": 1073741824,
+      "provenance": "assumed",
+      "note": "activations/scratch/allocator headroom"
+     },
+     {
+      "name": "engram-cache",
+      "bytes": 67108864,
+      "provenance": "measured-config",
+      "note": "64 MiB cache option"
+     },
+     {
+      "name": "staging",
+      "bytes": 150405120,
+      "provenance": "manifest",
+      "note": "8 expert slots in flight"
+     },
+     {
+      "name": "mtp-expert-reserve",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "1 slot x 3 MTP layers"
+     },
+     {
+      "name": "expert-pool",
+      "bytes": 0,
+      "provenance": "manifest",
+      "note": "0 whole backbone slots"
+     },
+     {
+      "name": "slack",
+      "bytes": -108600291400,
+      "provenance": "derived",
+      "note": "unallocated"
+     }
+    ],
+    "expert_slots": 0,
+    "slots_per_layer_even": 0.0,
+    "pct_of_all_experts": 0.0,
+    "pool_if_staging": {
+     "1": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "4": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "8": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "16": {
+      "slots": 0,
+      "pct": 0.0
+     },
+     "32": {
+      "slots": 0,
+      "pct": 0.0
+     }
+    }
+   }
+  }
+ },
+ "n_backbone_experts": 15360
+}

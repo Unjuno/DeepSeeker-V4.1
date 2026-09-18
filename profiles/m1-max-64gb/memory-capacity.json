@@ -1,0 +1,93 @@
+{
+ "schema": "deepseeker.memory-capacity/v1",
+ "generated_at_utc": "2026-09-18T02:26:33.545447+00:00",
+ "physical_bytes": 68719476736,
+ "baseline": {
+  "page_size": 16384,
+  "pages_free": 2608818,
+  "pages_compressed": 565640,
+  "compressor_bytes": 9267445760,
+  "swapusage": "vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)"
+ },
+ "recovery": {
+  "page_size": 16384,
+  "pages_free": 2557734,
+  "pages_compressed": 551028,
+  "compressor_bytes": 9028042752,
+  "swapusage": "vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)"
+ },
+ "levels": [
+  {
+   "target_gib": 8,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": -7340032,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 0.29,
+   "gpu_alloc_s": 0.13
+  },
+  {
+   "target_gib": 16,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": -82919424,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 0.57,
+   "gpu_alloc_s": 0.26
+  },
+  {
+   "target_gib": 24,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": -90800128,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 0.87,
+   "gpu_alloc_s": 0.39
+  },
+  {
+   "target_gib": 32,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": -99123200,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 1.17,
+   "gpu_alloc_s": 0.52
+  },
+  {
+   "target_gib": 40,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": 43450368,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 1.43,
+   "gpu_alloc_s": 0.74
+  },
+  {
+   "target_gib": 48,
+   "status": "held",
+   "hold_s": 5.0,
+   "compressor_delta_bytes": -228458496,
+   "swap_before": "0.00M",
+   "swap_after": "0.00M",
+   "cpu_alloc_s": 1.76,
+   "gpu_alloc_s": 1.72
+  }
+ ],
+ "stopped_reason": "completed all levels",
+ "rules": {
+  "max_compressor_delta_bytes": 536870912,
+  "stop_on_any_swap": true,
+  "safety_reserve_gib": 4
+ },
+ "recommendation": {
+  "hard_ceiling_gib": 48,
+  "operating_gib": 44,
+  "reserve_gib": 4,
+  "method": "largest clean level minus fixed reserve"
+ }
+}
