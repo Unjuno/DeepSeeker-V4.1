@@ -42,7 +42,7 @@ from deepseeker.checkpoint import (
 )
 
 REPO_ID = "deepseek-ai/DeepSeek-V4.1-Flash"
-CONCURRENCY = 8
+CONCURRENCY = 6
 
 
 def pinned_revision() -> str | None:

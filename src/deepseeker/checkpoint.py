@@ -85,10 +85,19 @@ def download_range(
     hasher: hashlib._Hash | None,
     stop: threading.Event,
     timeout: int = 120,
+    min_bytes_per_s: int = 50 * 1024,
+    stall_grace_s: float = 30.0,
 ) -> int:
-    """Append url[offset:] to dest_part; feed hasher. Returns new bytes."""
+    """Append url[offset:] to dest_part; feed hasher. Returns new bytes.
+
+    Raises TimeoutError when throughput collapses (stalled CDN edge):
+    after 30 s, sustained rate must stay above min_bytes_per_s.
+    """
+    import time
+
     req = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})
     received = 0
+    started = time.perf_counter()
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         if resp.status != 206 and not (resp.status == 200 and offset == 0):
             raise RuntimeError(f"unexpected status {resp.status}")
@@ -101,6 +110,11 @@ def download_range(
                 if hasher is not None:
                     hasher.update(chunk)
                 received += len(chunk)
+                elapsed = time.perf_counter() - started
+                if elapsed > stall_grace_s and received / elapsed < min_bytes_per_s:
+                    raise TimeoutError(
+                        f"throughput collapsed: {received} B in {elapsed:.0f}s from {url[:80]}"
+                    )
     return received
 
 

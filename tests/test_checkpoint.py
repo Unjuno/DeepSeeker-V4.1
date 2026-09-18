@@ -154,6 +154,37 @@ def test_resume_download_range(tmp_path):
     assert hasher.hexdigest() == hashlib.sha256(_RangeHandler.body).hexdigest()
 
 
+class _StallHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"x" * 1024
+        self.send_response(206)
+        self.send_header("Content-Range", "bytes 0-1023/1048576")
+        self.send_header("Content-Length", "1048576")
+        self.end_headers()
+        self.wfile.write(body)
+        import time as _time
+
+        _time.sleep(30)  # then stall: never send the rest
+
+    def log_message(self, *args):
+        pass
+
+
+def test_download_range_watchdog_aborts_stall(tmp_path):
+    import pytest as _pytest
+
+    server = HTTPServer(("127.0.0.1", 0), _StallHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/f"
+    stop = threading.Event()
+    part = tmp_path / "f.part"
+    with _pytest.raises(TimeoutError):
+        download_range(
+            url, part, 0, None, stop, timeout=10, min_bytes_per_s=10**12, stall_grace_s=1.0
+        )
+    server.shutdown()
+
+
 def test_state_and_status_helpers(tmp_path):
     state = new_state("repo", REVISION)
     state["files"]["a.safetensors"] = {"status": "verified", "verified_bytes": 10}
