@@ -85,8 +85,8 @@ def download_range(
     hasher: hashlib._Hash | None,
     stop: threading.Event,
     timeout: int = 120,
-    min_bytes_per_s: int = 50 * 1024,
-    stall_grace_s: float = 30.0,
+    min_bytes_per_s: int = 500 * 1024,
+    stall_grace_s: float = 60.0,
 ) -> int:
     """Append url[offset:] to dest_part; feed hasher. Returns new bytes.
 
