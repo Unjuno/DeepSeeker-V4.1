@@ -187,6 +187,17 @@ def _download_shard(
         and entry.get("sha256") == sha256
     ):
         return {"file": shard, "status": "reused-verified", "bytes": 0}
+    if dest.exists() and dest.stat().st_size == size and not part.exists():
+        # Complete file on disk but not yet adopted (previous run or
+        # copy): hash in place instead of re-downloading.
+        digest = hash_prefix(dest, size).hexdigest()
+        if sha256 and digest != sha256:
+            dest.unlink()
+        else:
+            return {"file": shard, "status": "downloaded",
+                    "bytes": 0, "resumed_bytes": size,
+                    "sha256": digest, "elapsed_s": 0.0,
+                    "adopted": True}
     offset = part.stat().st_size if part.exists() else 0
     if dest.exists() and not part.exists() and dest.stat().st_size != size:
         dest.unlink()  # stale complete-size mismatch: restart shard
