@@ -102,12 +102,12 @@ def download_range(
     empty_connections = 0
     while not stop.is_set():
         before = received
+        seg_started = time.perf_counter()
         want = max_bytes_per_connection
         req = urllib.request.Request(
             url,
             headers={"Range": f"bytes={offset + received}-{offset + received + want - 1}"},
         )
-        started = time.perf_counter()
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status != 206 and not (resp.status == 200 and offset + received == 0):
                 raise RuntimeError(f"unexpected status {resp.status}")
@@ -122,10 +122,12 @@ def download_range(
                     received += len(chunk)
                     if received >= want:
                         break
-                    elapsed = time.perf_counter() - started
-                    if elapsed > stall_grace_s and received / elapsed < min_bytes_per_s:
+                    seg_elapsed = time.perf_counter() - seg_started
+                    seg_bytes = received - before
+                    if seg_elapsed > stall_grace_s and (seg_bytes / seg_elapsed < min_bytes_per_s):
                         raise TimeoutError(
-                            f"throughput collapsed: {received} B in {elapsed:.0f}s from {url[:80]}"
+                            f"throughput collapsed: {seg_bytes} B in "
+                            f"{seg_elapsed:.0f}s from {url[:80]}"
                         )
         if stop.is_set():
             break
