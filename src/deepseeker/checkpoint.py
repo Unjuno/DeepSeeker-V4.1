@@ -87,34 +87,67 @@ def download_range(
     timeout: int = 120,
     min_bytes_per_s: int = 500 * 1024,
     stall_grace_s: float = 60.0,
+    max_bytes_per_connection: int = 256 * 1024 * 1024,
 ) -> int:
     """Append url[offset:] to dest_part; feed hasher. Returns new bytes.
 
-    Raises TimeoutError when throughput collapses (stalled CDN edge):
-    after 30 s, sustained rate must stay above min_bytes_per_s.
+    Raises TimeoutError when throughput collapses (stalled CDN edge).
+    Long-lived connections decay on this route, so each connection is
+    capped at max_bytes_per_connection and then re-established with a
+    fresh Range request (same hasher continues: content is contiguous).
     """
     import time
 
-    req = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})
     received = 0
-    started = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        if resp.status != 206 and not (resp.status == 200 and offset == 0):
-            raise RuntimeError(f"unexpected status {resp.status}")
-        with open(dest_part, "ab") as f:
-            while not stop.is_set():
-                chunk = resp.read(CHUNK_BYTES)
-                if not chunk:
-                    break
-                f.write(chunk)
-                if hasher is not None:
-                    hasher.update(chunk)
-                received += len(chunk)
-                elapsed = time.perf_counter() - started
-                if elapsed > stall_grace_s and received / elapsed < min_bytes_per_s:
-                    raise TimeoutError(
-                        f"throughput collapsed: {received} B in {elapsed:.0f}s from {url[:80]}"
-                    )
+    empty_connections = 0
+    while not stop.is_set():
+        before = received
+        want = max_bytes_per_connection
+        req = urllib.request.Request(
+            url,
+            headers={"Range": f"bytes={offset + received}-{offset + received + want - 1}"},
+        )
+        started = time.perf_counter()
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 206 and not (resp.status == 200 and offset + received == 0):
+                raise RuntimeError(f"unexpected status {resp.status}")
+            with open(dest_part, "ab") as f:
+                while not stop.is_set():
+                    chunk = resp.read(CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    if hasher is not None:
+                        hasher.update(chunk)
+                    received += len(chunk)
+                    if received >= want:
+                        break
+                    elapsed = time.perf_counter() - started
+                    if elapsed > stall_grace_s and received / elapsed < min_bytes_per_s:
+                        raise TimeoutError(
+                            f"throughput collapsed: {received} B in {elapsed:.0f}s from {url[:80]}"
+                        )
+        if stop.is_set():
+            break
+        if received == before:
+            empty_connections += 1
+            if empty_connections >= 3:
+                break  # server keeps answering empty: treat as EOF
+        else:
+            empty_connections = 0
+        # Connection ended by server (short of want) or segment done.
+        # Probe one byte to distinguish EOF from truncation: a further
+        # Range request decides.
+        probe = urllib.request.Request(
+            url, headers={"Range": f"bytes={offset + received}-{offset + received}"}
+        )
+        try:
+            with urllib.request.urlopen(probe, timeout=timeout) as resp:
+                if resp.status == 206:
+                    continue  # more data: rotate to a fresh connection
+        except Exception:
+            pass
+        break
     return received
 
 

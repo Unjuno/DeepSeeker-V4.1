@@ -120,13 +120,18 @@ class _RangeHandler(BaseHTTPRequestHandler):
     body = b""
 
     def do_GET(self):
+        import re as _re
+
         total = len(type(self).body)
         range_header = self.headers.get("Range")
         if range_header:
-            start = int(range_header.split("=")[1].split("-")[0])
-            payload = type(self).body[start:]
+            m = _re.match(r"bytes=(\d+)-(\d*)$", range_header)
+            assert m is not None
+            start = int(m.group(1))
+            end = min(int(m.group(2)) if m.group(2) else total - 1, total - 1)
+            payload = type(self).body[start : end + 1]
             self.send_response(206)
-            self.send_header("Content-Range", f"bytes {start}-{total - 1}/{total}")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
         else:
             payload = type(self).body
             self.send_response(200)
@@ -183,6 +188,19 @@ def test_download_range_watchdog_aborts_stall(tmp_path):
             url, part, 0, None, stop, timeout=10, min_bytes_per_s=10**12, stall_grace_s=1.0
         )
     server.shutdown()
+
+
+def test_download_range_rotates_connections(tmp_path):
+    _RangeHandler.body = bytes(range(256)) * 4096  # 1 MiB
+    server = HTTPServer(("127.0.0.1", 0), _RangeHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/f"
+    stop = threading.Event()
+    part = tmp_path / "g.part"
+    received = download_range(url, part, 0, None, stop, max_bytes_per_connection=65536)
+    server.shutdown()
+    assert received == len(_RangeHandler.body)
+    assert part.read_bytes() == _RangeHandler.body
 
 
 def test_state_and_status_helpers(tmp_path):
