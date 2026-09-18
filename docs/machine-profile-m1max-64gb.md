@@ -1,5 +1,11 @@
 # Machine Profile — M1 Max 64GB (target machine, sanitized)
 
+> Manual snapshot + automated probe coexist. The repeatable source of
+> truth is now `python scripts/probe_machine.py` → `profiles/m1-max-64gb/`
+> (see `docs/PROBE.md`). This document keeps hand-collected values the
+> probe does not cover yet (sustained multi-minute runs, numpy CPU GEMM
+> tables, Xcode-install investigation notes).
+
 Date: 2026-09-18 (JST), updated same day with upstream fetch + GPU/CPU/SSD baselines
 DeepSeeker commit: `f1c6fb0` at time of update (`docs: add sanitized M1 Max 64GB machine profile`)
 Upstream `deepseek-ai/DeepSeek-V4.1-Flash` revision (`main`):

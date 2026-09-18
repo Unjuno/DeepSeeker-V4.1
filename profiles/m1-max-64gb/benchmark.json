@@ -1,0 +1,170 @@
+{
+  "schema": "deepseeker.benchmark/v1",
+  "probe_version": "1.0.0",
+  "collected_at_utc": "2026-09-18T00:21:05.085165+00:00",
+  "deepseeker_commit": "a07fb03ac4427113707582922028b02f29272d58",
+  "upstream_resolved_revision": "dba1be0a40aa45a94ad051997016db3960a90277",
+  "cpu_streaming": {
+    "available": true,
+    "numpy_version": "2.5.3",
+    "results": [
+      {
+        "op": "streaming-copy",
+        "backend": "numpy",
+        "device": "cpu",
+        "dtype": "float64",
+        "buffer_bytes": 67108864,
+        "warmup_iters": 3,
+        "measured_iters": 10,
+        "median_ms": 1.6027909878175706,
+        "min_ms": 1.4182919985614717,
+        "max_ms": 2.160833973903209,
+        "throughput_gib_s": 78.0,
+        "throughput_basis": "read+write"
+      },
+      {
+        "op": "streaming-copy",
+        "backend": "numpy",
+        "device": "cpu",
+        "dtype": "float64",
+        "buffer_bytes": 268435456,
+        "warmup_iters": 3,
+        "measured_iters": 10,
+        "median_ms": 6.625458016060293,
+        "min_ms": 5.8861669967882335,
+        "max_ms": 7.345125020947307,
+        "throughput_gib_s": 75.5,
+        "throughput_basis": "read+write"
+      }
+    ]
+  },
+  "mlx_gpu": {
+    "available": true,
+    "results": [
+      {
+        "op": "stream-triad",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "buffer_bytes": 268435456,
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 5.65116701181978,
+        "min_ms": 4.188833991065621,
+        "max_ms": 8.069709001574665,
+        "throughput_gib_s": 132.7,
+        "throughput_basis": "2 reads + 1 write"
+      },
+      {
+        "op": "moe-gate-gemm",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 1,
+          "hidden": 5120,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.4224579897709191,
+        "min_ms": 0.3486250061541796,
+        "max_ms": 1.9457500020507723,
+        "gflops": 55.8
+      },
+      {
+        "op": "moe-gate-gemm",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 2,
+          "hidden": 5120,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.3572080167941749,
+        "min_ms": 0.2944169973488897,
+        "max_ms": 2.0570839988067746,
+        "gflops": 132.1
+      },
+      {
+        "op": "moe-gate-gemm",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 4,
+          "hidden": 5120,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.5778750055469573,
+        "min_ms": 0.33599999733269215,
+        "max_ms": 1.3836669968441129,
+        "gflops": 163.3
+      },
+      {
+        "op": "moe-gate-gemm",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 8,
+          "hidden": 5120,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.3500829916447401,
+        "min_ms": 0.3182090003974736,
+        "max_ms": 1.4793750015087426,
+        "gflops": 539.1
+      },
+      {
+        "op": "moe-gate-gemm",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 16,
+          "hidden": 5120,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.3739160019904375,
+        "min_ms": 0.3211250004824251,
+        "max_ms": 1.279457996133715,
+        "gflops": 1009.6
+      },
+      {
+        "op": "swiglu-elementwise-unfused",
+        "backend": "mlx",
+        "device": "Device(gpu, 0)",
+        "dtype": "float16",
+        "shape": {
+          "batch": 6,
+          "intermediate": 2304
+        },
+        "warmup_iters": 5,
+        "measured_iters": 20,
+        "median_ms": 0.26500000967644155,
+        "min_ms": 0.2163749886676669,
+        "max_ms": 0.49020801088772714
+      }
+    ]
+  },
+  "storage": {
+    "available": true,
+    "method": "disposable-file with fcntl F_NOCACHE (advisory only); NOT purge-controlled; cache-resident component possible",
+    "cache_control": "advisory-uncached",
+    "cold_storage_proven": false,
+    "file_bytes": 268435456,
+    "block_bytes": 4194304,
+    "sequential_write_mib_s": 6556.9,
+    "sequential_read_mib_s": 3182.2
+  }
+}
