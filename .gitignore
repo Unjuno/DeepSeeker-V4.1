@@ -28,6 +28,8 @@ profiles/m1-max-64gb/*
 !profiles/m1-max-64gb/machine.json
 !profiles/m1-max-64gb/benchmark.json
 !profiles/m1-max-64gb/README.md
+!profiles/m1-max-64gb/storage-patterns.json
+!profiles/m1-max-64gb/storage-patterns.md
 profiles/deepseek-v4.1-flash/*
 !profiles/deepseek-v4.1-flash/
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/
