@@ -28,6 +28,8 @@ ALLOW_PATTERNS = [
     "processor_config.json",
     "inference/*",
     "inference/**/*",
+    "encoding/*",
+    "encoding/**/*",
 ]
 
 IGNORE_PATTERNS = [
