@@ -21,3 +21,14 @@ When DeepSeek source code is copied, modified, or redistributed in this reposito
 The `scripts/fetch_upstream.py` workflow keeps the official reference implementation in an ignored local `upstream/` directory by default. This reduces accidental mixing of upstream code and DeepSeeker-owned code while preserving a reproducible path to the reference implementation.
 
 Model weights are not distributed by this repository.
+
+## FreeToken
+
+`src/deepseeker/moe_align.py` ports the observable contract of
+`moe_align_block_size` from FreeToken:
+
+- https://github.com/FlashML-org/FreeToken (v0.1.3, reviewed 2026-09-21)
+- License: Apache License, Version 2.0
+- Copyright 2026 FreeToken Authors
+
+No other FreeToken code is vendored. See `docs/FREETOKEN_AUDIT.md`.
