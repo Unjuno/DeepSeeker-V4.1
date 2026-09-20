@@ -1,29 +1,37 @@
-"""Analytic decode flow-map: bytes/token as functions of the cheats.
+"""Analytic decode flow-map for bandwidth-bound inference.
 
-Closed form, no experiments. Reproduces the MLX bench (109.9ms vs 109.8ms
-measured) then maximizes over:
+This module is a hypothesis model, not an end-to-end benchmark.
 
-  batch B        weight traffic shared across the batch (occupancy union)
-  sparsity s     fraction of expert neurons skipped per token (row-select
-                 on gate/up + column-select on down; needs a neuron predictor)
-  mtp_accept a   expected extra accepted tokens per forward from the 3
-                 built-in MTP heads (nearly-free tokens)
-  residency      experts already in 64GB pay zero SSD/UW traffic here;
-                 modeled as effective byte cost multiplier (default 1.0)
+Important semantics:
 
-tok/s = B * (1 + a) / (bytes_per_forward / bandwidth + launch_latency)
+* batch means concurrent sequences processed together. tokens_per_second
+  therefore returns aggregate accepted-token throughput across the batch.
+  It is not the generation rate of one conversation when batch > 1.
+* sparsity models skipping expert neurons. Any non-zero value is an
+  unverified, potentially quality-changing counterfactual unless exact
+  equivalence has separately been proved. DeepSeeker's lossless/default
+  path uses sparsity=0.
+* mtp_accept is expected extra accepted tokens per sequence/forward.
+  If mtp_verify_bytes is left at zero, MTP results are optimistic upper
+  bounds until candidate/verification cost is measured.
 
-Bytes per forward (fp4 bytes from the Issue #2 manifest):
-  dense_fixed  attention+shared+head+router+norm weights, paid once per
-               forward regardless of batch (broadcast).
-  moe          union over the batch of routed experts x expert bytes x (1-s).
-               Union via occupancy: n*(1-(1-k/n)^B) per layer.
-  mtp_verify   per-draft verify cost (OPEN measurement, default 0).
+The traffic model uses exact encoded routed-expert bytes from the Issue #2
+manifest. Batch expert union is approximated by independent occupancy:
+
+    n * (1 - (1 - k/n) ** B)
+
+Aggregate throughput:
+
+    B * (1 + a) / (bytes_per_forward / bandwidth + launch_latency)
+
+Per-sequence throughput for the same synchronized batch:
+
+    (1 + a) / (bytes_per_forward / bandwidth + launch_latency)
 """
 
 from __future__ import annotations
 
-SCHEMA = "deepseeker.flowmap/v1"
+SCHEMA = "deepseeker.flowmap/v2"
 
 
 def expert_union_per_layer(n_routed: int, top_k: int, batch: int) -> float:
@@ -44,7 +52,12 @@ def bytes_per_forward(
     mtp_drafts: int = 0,
     mtp_verify_bytes: float = 0.0,
 ) -> dict:
-    """Split traffic per forward pass."""
+    """Split modeled encoded-weight traffic per synchronized forward.
+
+    sparsity is retained only for counterfactual research. A non-zero value
+    is marked unverified because skipping neurons is not lossless by default
+    and must not be used as evidence for the project quality target.
+    """
     if not 0.0 <= sparsity < 1.0:
         raise ValueError(f"sparsity must be in [0, 1), got {sparsity!r}")
     union = expert_union_per_layer(n_routed, top_k, batch)
@@ -57,7 +70,29 @@ def bytes_per_forward(
         "mtp_verify_bytes": mtp,
         "total_bytes": total,
         "experts_touched_per_layer": union,
+        "quality_status": (
+            "lossless-compatible-model"
+            if sparsity == 0.0
+            else "UNVERIFIED_QUALITY_CHANGING_SPARSITY"
+        ),
     }
+
+
+def per_sequence_tokens_per_second(
+    mtp_accept: float,
+    flow: dict,
+    bandwidth_bps: float,
+    launch_latency_s: float = 0.005,
+) -> float:
+    """Accepted-token rate for one sequence in a synchronized batch.
+
+    With non-zero mtp_accept and zero supplied verification traffic this is
+    an optimistic upper bound.
+    """
+    if mtp_accept < 0:
+        raise ValueError("mtp_accept >= 0 required")
+    seconds = flow["total_bytes"] / bandwidth_bps + launch_latency_s
+    return (1.0 + mtp_accept) / seconds
 
 
 def tokens_per_second(
@@ -67,11 +102,16 @@ def tokens_per_second(
     bandwidth_bps: float,
     launch_latency_s: float = 0.005,
 ) -> float:
-    """Throughput from the flow-map: tokens confirmed per second."""
-    if batch < 1 or mtp_accept < 0:
-        raise ValueError("batch >= 1 and mtp_accept >= 0 required")
-    seconds = flow["total_bytes"] / bandwidth_bps + launch_latency_s
-    return batch * (1.0 + mtp_accept) / seconds
+    """Aggregate accepted-token throughput across batch sequences.
+
+    For batch > 1 this MUST NOT be reported as the generation speed of a
+    single conversation. Use per_sequence_tokens_per_second for that.
+    """
+    if batch < 1:
+        raise ValueError("batch >= 1 required")
+    return batch * per_sequence_tokens_per_second(
+        mtp_accept, flow, bandwidth_bps, launch_latency_s
+    )
 
 
 def required_batch(
@@ -89,13 +129,29 @@ def required_batch(
     mtp_verify_bytes: float = 0.0,
     ceiling: int = 4096,
 ) -> int | None:
-    """Smallest batch hitting target tok/s (None beyond ceiling)."""
+    """Smallest concurrent batch hitting target aggregate tok/s.
+
+    A non-zero sparsity is quality-unverified. Zero mtp_verify_bytes with
+    non-zero mtp_accept is optimistic until verification cost is measured.
+    """
     for batch in range(1, ceiling + 1):
         flow = bytes_per_forward(
-            batch, dense_bytes, n_layers, n_routed, top_k, expert_bytes,
-            sparsity, mtp_drafts, mtp_verify_bytes,
+            batch,
+            dense_bytes,
+            n_layers,
+            n_routed,
+            top_k,
+            expert_bytes,
+            sparsity,
+            mtp_drafts,
+            mtp_verify_bytes,
         )
-        if tokens_per_second(batch, mtp_accept, flow, bandwidth_bps, launch_latency_s) >= target:
+        if (
+            tokens_per_second(
+                batch, mtp_accept, flow, bandwidth_bps, launch_latency_s
+            )
+            >= target
+        ):
             return batch
     return None
 
@@ -113,13 +169,23 @@ def required_sparsity(
     launch_latency_s: float = 0.005,
     step: float = 0.01,
 ) -> float | None:
-    """Smallest neuron sparsity hitting target (None if even s->1 fails)."""
+    """Counterfactual sparsity for target aggregate throughput.
+
+    This function does NOT establish a lossless path. Any returned non-zero
+    sparsity is outside the project quality invariant until exact equivalence
+    is independently demonstrated.
+    """
     s = 0.0
     while s < 1.0:
         flow = bytes_per_forward(
             batch, dense_bytes, n_layers, n_routed, top_k, expert_bytes, s
         )
-        if tokens_per_second(batch, mtp_accept, flow, bandwidth_bps, launch_latency_s) >= target:
+        if (
+            tokens_per_second(
+                batch, mtp_accept, flow, bandwidth_bps, launch_latency_s
+            )
+            >= target
+        ):
             return round(s, 2)
         s = round(s + step, 10)
     return None
