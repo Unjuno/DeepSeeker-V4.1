@@ -1,0 +1,28 @@
+{
+  "schema": "deepseeker.audit-map/v1",
+  "subject": {
+    "repo": "https://github.com/FlashML-org/FreeToken",
+    "version": "0.1.3",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2026 FreeToken Authors / FlashML Team",
+    "audited_at_utc": "2026-09-21",
+    "note": "Geometry mismatch: their deepseek_v4 target is dim 4096/43 layers/256 experts, NOT our pinned 5120/40/384. Nothing model-specific transfers without re-derivation."
+  },
+  "verdicts": [
+    {"subsystem": "expert-cache LRU/hit-split/fetch-cap policy", "source": "moe/offload_cache.py, moe/offload_kernels.py", "verdict": "adapt", "rationale": "Reuse policy math; replace PCIe/D2D transport with unified-memory views.", "deepseeker_issue": "#23"},
+    {"subsystem": "piece-pack-bank loading contract", "source": "moe/expert_pieces.py, moe/expert_banks.py, moe/host_banks.py", "verdict": "reuse", "rationale": "Layout-agnostic piece protocol is platform-independent; swap only file-IO/pin backend.", "deepseeker_issue": "#23"},
+    {"subsystem": "FTW checkpoint layout spec", "source": "checkpoint/ftw.py, checkpoint/convert.py", "verdict": "reuse", "rationale": "JSON index + raw bytes + per-layer grouping portable; convert on NVIDIA, ship bytes.", "deepseeker_issue": "#23"},
+    {"subsystem": "moe_align_block_size contract", "source": "moe/fused.py", "verdict": "reuse", "rationale": "Ported to numpy as src/deepseeker/moe_align.py (minimum-test benchmark); Triton body discarded.", "deepseeker_issue": "#31"},
+    {"subsystem": "grouped-GEMM batching math", "source": "kernel/triton/fp8_blockscale_moe.py", "verdict": "adapt", "rationale": "Port sort-by-expert + padded expert_ids + in-loop scales to Metal; discard Triton source.", "deepseeker_issue": "#31"},
+    {"subsystem": "hybrid CPU/GPU split + fetch fraction", "source": "moe/cpu_executor.py, engine _resolve_hybrid_fetch, moe/bench_profile.py", "verdict": "adapt", "rationale": "Keep split-submit/sync overlap + closed-form pcie/(pcie+cpu); rebench Apple CPU-vs-GPU from scratch.", "deepseeker_issue": "#35"},
+    {"subsystem": "bandwidth bench methodology + JSON schema", "source": "moe/benchbw.py, moe/bench_profile.py", "verdict": "adapt", "rationale": "Reuse ceilings+real-kernel+overlapped tiers and schema; rewrite rigs for unified memory.", "deepseeker_issue": "#32"},
+    {"subsystem": "KV radix/prefix caches", "source": "kvcache/radix_cache.py, hybrid_radix_cache.py, swa_radix_cache.py, naive_cache.py", "verdict": "reuse", "rationale": "Device-agnostic index logic; SWA variant matches our sliding-window arch.", "deepseeker_issue": "#27"},
+    {"subsystem": "elastic VRAM split arithmetic", "source": "engine/cache_budget.py", "verdict": "adapt", "rationale": "Keep integer split; refeed with unified-memory baseline and resident-expert costs.", "deepseeker_issue": "#28"},
+    {"subsystem": "prefill-first scheduler state machine", "source": "scheduler/scheduler.py, scheduler/cache.py", "verdict": "adapt", "rationale": "Keep commit/evict/prefill-first logic; replace CUDA-stream/graph overlap.", "deepseeker_issue": "#28"},
+    {"subsystem": "Triton/CUDA execution kernels", "source": "kernel/triton/*, moe/fused_*.py, moe/offload_kernels.py", "verdict": "reject", "rationale": "NVIDIA-only; no Metal path. H100 autotune tables likewise.", "deepseeker_issue": "#33"},
+    {"subsystem": "PCIe hybrid-fetch tuner", "source": "moe/benchbw.py run_benchbw, per-GPU profiles", "verdict": "reject", "rationale": "Unified memory has no PCIe leg to balance.", "deepseeker_issue": null},
+    {"subsystem": "DSV4/DSA attention backends", "source": "attention/dsv4_*.py, attention/dsa*.py", "verdict": "reject", "rationale": "Triton/graph-bound and model-bespoke; revisit after dense path works.", "deepseeker_issue": null},
+    {"subsystem": "O_DIRECT/pin file-IO plumbing", "source": "moe/host_banks.py read paths", "verdict": "reject", "rationale": "Linux+CUDA-only syscalls; use pread/mmap + Metal-shared memory.", "deepseeker_issue": "#24"},
+    {"subsystem": "six-range async expert I/O pattern", "source": "moe/host_banks.py PinPipeline, expert_banks.py", "verdict": "adapt", "rationale": "Keep lazy-alloc/fill/background-settle pattern for #24 staging design.", "deepseeker_issue": "#24"}
+  ]
+}

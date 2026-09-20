@@ -50,6 +50,10 @@ profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/*
 profiles/bench/*
 !profiles/bench/corpus.json
 !profiles/bench/golden-*.json
+# FreeToken audit map is committed (Issue #18, machine-readable table).
+!profiles/audit/
+profiles/audit/*
+!profiles/audit/freetoken-map.json
 *.trace
 *.prof
 *.jsonl
