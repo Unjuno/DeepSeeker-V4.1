@@ -44,6 +44,12 @@ profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/*
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/storage-summary.md
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/engram-access.json
 !profiles/deepseek-v4.1-flash/dba1be0a40aa45a94ad051997016db3960a90277/engram-access-summary.md
+# Golden bench corpus + golden outputs are committed (Issue #17);
+# per-run result.json files stay ignored (pass --out to /tmp).
+!profiles/bench/
+profiles/bench/*
+!profiles/bench/corpus.json
+!profiles/bench/golden-*.json
 *.trace
 *.prof
 *.jsonl

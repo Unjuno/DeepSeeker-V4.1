@@ -1,0 +1,24 @@
+{
+  "schema": "deepseeker.bench-corpus/v1",
+  "note": "Fixed prompts + sampling for the golden harness. Prompts are short on purpose: the harness validates determinism/equivalence, not quality.",
+  "sampling": {
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "max_new_tokens": 32,
+    "seed": 1337
+  },
+  "cases": [
+    {
+      "id": "greet-en",
+      "messages": [{"role": "user", "content": "Say hello in exactly five words."}]
+    },
+    {
+      "id": "arith",
+      "messages": [{"role": "user", "content": "What is 37 times 41? Answer with the number only."}]
+    },
+    {
+      "id": "code-small",
+      "messages": [{"role": "user", "content": "Write a Python function that returns the square of its argument."}]
+    }
+  ]
+}
