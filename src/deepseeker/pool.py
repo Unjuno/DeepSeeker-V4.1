@@ -19,6 +19,7 @@ No prefetch, no router changes, no kernels.
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 
 import numpy as np
@@ -183,8 +184,7 @@ class ResidentPool:
 
 def load_expert_bytes(model_root, manifest: dict, layer: int, expert: int):
     """Read one expert's full tensor bytes from checkpoint shards."""
-    import os
-    from pathlib import Path
+    from deepseeker.ssd_policy import open_backing_file
 
     blobs = []
     for tensor in manifest.get("tensors", []):
@@ -194,7 +194,7 @@ def load_expert_bytes(model_root, manifest: dict, layer: int, expert: int):
             and tensor.get("expert") == expert
         ):
             start, end = tensor["file_range"]
-            fd = os.open(Path(model_root) / tensor["shard"], os.O_RDONLY)
+            fd = open_backing_file(model_root, tensor["shard"])
             try:
                 data = os.pread(fd, end - start, start)
             finally:

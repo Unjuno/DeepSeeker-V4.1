@@ -53,7 +53,9 @@ class EngramRowCache:
         self.rows_served = 0
 
     def _pread(self, shard: str, start: int, size: int) -> bytes:
-        fd = os.open(self._root / shard, os.O_RDONLY)
+        from deepseeker.ssd_policy import open_backing_file
+
+        fd = open_backing_file(self._root, shard)
         try:
             data = os.pread(fd, size, start)
         finally:

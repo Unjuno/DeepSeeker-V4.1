@@ -27,12 +27,14 @@ from deepseeker.engram_cache import EngramRowCache, access_stream
 
 
 def direct_row(model_root: Path, ref, row_id: int) -> tuple[bytes, bytes]:
+    from deepseeker.ssd_policy import open_backing_file
+
     info = row_ranges(ref, row_id)
     out = []
     for part in ("weight", "scale"):
         shard = info[part]["shard"]
         start, end = info[part]["range"]
-        fd = os.open(model_root / shard, os.O_RDONLY)
+        fd = open_backing_file(model_root, shard)
         try:
             data = os.pread(fd, end - start, start)
         finally:

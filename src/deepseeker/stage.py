@@ -97,7 +97,9 @@ class StagingEngine:
 
     @staticmethod
     def _pread_range(path: Path, start: int, size: int) -> bytes:
-        fd = os.open(path, os.O_RDONLY)
+        from deepseeker.ssd_policy import open_backing_file
+
+        fd = open_backing_file(path.parent, path.name)
         try:
             data = os.pread(fd, size, start)
         finally:
@@ -112,10 +114,12 @@ class StagingEngine:
         open/close per range cost ~3x service time in measurement;
         the cache closes fds at shutdown.
         """
+        from deepseeker.ssd_policy import open_backing_file
+
         with self._fd_lock:
             fd = self._fd_cache.get(path)
             if fd is None:
-                fd = os.open(path, os.O_RDONLY)
+                fd = open_backing_file(path.parent, path.name)
                 self._fd_cache[path] = fd
         data = os.pread(fd, size, start)
         if len(data) != size:
