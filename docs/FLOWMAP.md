@@ -75,35 +75,31 @@ allowance, the analytic B=1, a=0 result is about 10.7 tok/s.
 This is NOT a measured end-to-end result.  Attention compute, dequantization,
 runtime scheduling, I/O stalls, cache effects, and other costs can lower it.
 
-## MTP is currently an optimistic upper bound
+## MTP verify cost is now measured (Issue #29)
 
-The table can set a=1 or a=2 to ask "what if one forward produced one or two
-additional accepted tokens?"
+Code analysis of `model.py`: `dspark_block_size` = 5 drafts verified by
+3 MTP layers routing top-3 of 128 experts at ~18.75MB each (7.22GB
+mtp-expert / 3 / 128) + windowed attention + markov/confidence heads:
+**~0.2GB per sequence-forward, ~1.5% of the 11.7GB backbone pass**
+(`MTP_DRAFTS`, `MTP_VERIFY_BYTES` in flowmap.py). Only the acceptance
+rate stays parameterized (temperature-dependent; needs live runs).
 
-Until MTP candidate generation and target verification traffic/cost are
-measured, a>0 with zero verification bytes is an optimistic upper bound.
+## Lossless-compatible aggregate scenarios (measured verify cost)
 
-In particular, the B=1, a=2 value of about 32.2 tok/s does not establish that
-the real MTP path achieves 3x throughput.
-
-## Lossless-compatible aggregate scenarios
-
-All rows below use s=0.  MTP rows still assume zero verification cost and are
-therefore optimistic.
+All rows below use s=0.
 
 | B | a | aggregate tok/s | per-sequence tok/s | GiB/forward | interpretation |
 |---:|---:|---:|---:|---:|---|
 | 1 | 0 | 10.7 | 10.7 | 11.7 | analytic baseline |
-| 1 | 2 | 32.2 | 32.2 | 11.7 | optimistic MTP upper bound |
-| 8 | 2 | 79.6 | 10.0 | 39.3 | aggregate serving throughput |
-| 32 | 2 | 111.1 | 3.47 | 114.0 | aggregate serving throughput |
-| 128 | 2 | 211.2 | 1.65 | 240.6 | aggregate serving throughput |
-| 275 | 2 | 400.2 | 1.46 | 272.9 | aggregate only; optimistic MTP |
+| 1 | 2 | 31.7 | 31.7 | 11.9 | MTP with measured verify cost |
+| 8 | 2 | 76.6 | 9.57 | 40.9 | aggregate serving throughput |
+| 32 | 2 | 105.3 | 3.29 | 120.4 | aggregate serving throughput |
+| 128 | 2 | 190.9 | 1.49 | 266.2 | aggregate serving throughput |
+| 275 | 2 | ~400 | 1.46 | ~273 | aggregate only; acceptance still parameterized |
 
-Thus, under this model with s=0 and zero-cost a=2 MTP, 400 aggregate tok/s
-requires roughly B=275.  That is not evidence for 400 single-sequence tok/s,
-and it is not yet a feasibility result because memory, latency, routing-union,
-MTP verification, and compute constraints are not fully represented.
+Thus, with s=0 and measured-cost a=2 MTP, 400 aggregate tok/s
+requires roughly B=275. That is not evidence for 400 single-sequence
+tok/s. The remaining MTP unknown is acceptance rate, not traffic.
 
 ## Historical sparsity scenario — not a lossless claim
 
@@ -147,5 +143,5 @@ For the user's 400 tok/s stretch goal, track a separate metric:
 
 Do not substitute aggregate batched throughput for that metric.
 
-The next decisive measurements are real MTP verify cost, real multi-token
+The next decisive measurements are live MTP acceptance rate, real multi-token
 weight reuse, and authoritative routing traces.

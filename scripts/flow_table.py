@@ -6,8 +6,8 @@ Use --include-quality-changing only to inspect counterfactual neuron-skipping
 scenarios; those MUST NOT be used as evidence for the project quality target.
 
 Batch B means concurrent sequences.  Aggregate tok/s and per-sequence tok/s
-are printed separately.  MTP rows with zero verification traffic are explicit
-optimistic upper bounds until real verification cost is measured.
+are printed separately.  MTP rows carry the Issue #29 measured verification
+cost (5 drafts, ~0.2GB); acceptance rate stays parameterized.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from deepseeker.baseline import load_json
 from deepseeker.flowmap import (
+    MTP_DRAFTS,
+    MTP_VERIFY_BYTES,
     bytes_per_forward,
     per_sequence_tokens_per_second,
     required_batch,
@@ -102,7 +104,11 @@ def main() -> int:
     print("B    a    s    aggregate    per-seq    GiB/fwd  quality       label")
     rows = []
     for batch, accept, sparsity, label in scenarios:
-        flow = bytes_per_forward(batch, dense, sparsity=sparsity, **params)
+        drafts = MTP_DRAFTS if accept > 0 else 0
+        verify = MTP_VERIFY_BYTES if accept > 0 else 0.0
+        flow = bytes_per_forward(batch, dense, sparsity=sparsity,
+                                 mtp_drafts=drafts, mtp_verify_bytes=verify,
+                                 **params)
         aggregate_rate = tokens_per_second(batch, accept, flow, bandwidth)
         sequence_rate = per_sequence_tokens_per_second(
             accept, flow, bandwidth
@@ -122,7 +128,7 @@ def main() -> int:
                 "gib_per_forward": round(flow["total_bytes"] / 2**30, 1),
                 "quality": quality,
                 "mtp_cost": (
-                    "optimistic-zero-verify-cost"
+                    "measured-0.2GB-verify"
                     if accept > 0
                     else "none"
                 ),
@@ -147,7 +153,7 @@ def main() -> int:
     print()
     print(
         f"aggregate batch for {args.target:g} tok/s with sparsity=0 "
-        f"and optimistic a=2: {safe_batch}"
+        f"and measured-cost a=2: {safe_batch}"
     )
     if safe_batch is not None:
         safe_flow = bytes_per_forward(safe_batch, dense, **params)
@@ -189,8 +195,8 @@ def main() -> int:
     print(
         "IMPORTANT: B>1 numbers are aggregate serving throughput. "
         "Non-zero sparsity is outside the lossless claim until exact "
-        "equivalence is proved. MTP rows assume zero verification cost "
-        "unless that cost is explicitly supplied elsewhere."
+        "equivalence is proved. MTP rows include the measured 0.2GB "
+        "verify cost; only the acceptance rate is still parameterized."
     )
 
     if args.json_out:

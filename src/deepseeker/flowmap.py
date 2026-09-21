@@ -34,6 +34,16 @@ from __future__ import annotations
 SCHEMA = "deepseeker.flowmap/v2"
 
 
+# MTP/DSpark verify path (Issue #29 code analysis of model.py):
+# dspark_block_size = 5 drafts verified by 3 MTP layers routing top-3
+# (dspark_n_activated_experts) of 128 (dspark_n_routed_experts) experts
+# at ~18.75MB each (7.22GB mtp-expert / 3 / 128) + windowed attention +
+# markov/confidence heads (sub-GB). ~1.5% of a backbone forward.
+# Acceptance rate stays parameterized (temperature-dependent, live runs).
+MTP_DRAFTS = 5
+MTP_VERIFY_BYTES = 0.2 * 1024**3
+
+
 def expert_union_per_layer(n_routed: int, top_k: int, batch: int) -> float:
     """Expected distinct experts touched in one layer across the batch."""
     if batch < 1:
@@ -52,6 +62,11 @@ def bytes_per_forward(
     mtp_drafts: int = 0,
     mtp_verify_bytes: float = 0.0,
 ) -> dict:
+    """Split traffic per forward pass.
+
+    MTP verify is one pass per sequence covering the whole draft block
+    (mtp_drafts > 0 switches it on; cost does NOT multiply by drafts).
+    """
     """Split modeled encoded-weight traffic per synchronized forward.
 
     sparsity is retained only for counterfactual research. A non-zero value
@@ -62,7 +77,7 @@ def bytes_per_forward(
         raise ValueError(f"sparsity must be in [0, 1), got {sparsity!r}")
     union = expert_union_per_layer(n_routed, top_k, batch)
     moe = n_layers * union * expert_bytes * (1.0 - sparsity)
-    mtp = batch * mtp_drafts * mtp_verify_bytes
+    mtp = batch * mtp_verify_bytes if mtp_drafts > 0 else 0.0
     total = dense_bytes + moe + mtp
     return {
         "dense_bytes": dense_bytes,

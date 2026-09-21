@@ -89,6 +89,19 @@ def test_sparsity_is_explicitly_quality_unverified():
         )
 
 
+def test_mtp_measured_verify_cost_band():
+    from deepseeker.flowmap import MTP_DRAFTS, MTP_VERIFY_BYTES
+
+    assert MTP_DRAFTS == 5
+    # 3 layers x top-3 x ~18.75MB experts recog: 0.1-0.4GB band
+    assert 0.1 * 1024**3 < MTP_VERIFY_BYTES < 0.4 * 1024**3
+    off = bytes_per_forward(1, P["dense_bytes"], **GEO)
+    on = bytes_per_forward(1, P["dense_bytes"], mtp_drafts=5,
+                           mtp_verify_bytes=MTP_VERIFY_BYTES, **GEO)
+    assert on["total_bytes"] - off["total_bytes"] == pytest.approx(MTP_VERIFY_BYTES)
+    assert on["mtp_verify_bytes"] == pytest.approx(MTP_VERIFY_BYTES)
+
+
 def test_mtp_zero_verify_cost_is_mathematically_optimistic():
     base = tokens_per_second(1, 0.0, flow(), BW)
     mtp_zero_cost = tokens_per_second(1, 2.0, flow(), BW)
