@@ -171,6 +171,13 @@ class EngramRowCache:
             chunks.append(page_bytes[lo:hi])
         return b"".join(chunks)
 
+    def resize_capacity(self, capacity_bytes: int) -> None:
+        """Lower (or raise) the byte ceiling, evicting LRU excess now."""
+        if capacity_bytes < self._page:
+            raise ValueError("capacity must hold at least one page")
+        self._capacity = capacity_bytes
+        self._enforce_capacity()
+
     def metrics(self) -> dict:
         total = self.page_hits + self.page_misses
         return {

@@ -64,6 +64,22 @@ class ResidentPool:
     def cap(self, layer: int) -> int:
         return self._caps.get(layer, self._default)
 
+    def set_cap(self, layer: int, cap: int) -> int:
+        """Lower (or raise) a layer cap, evicting LRU excess. Returns evicted count."""
+        if cap < 1:
+            raise ValueError("cap must be >= 1")
+        self._caps[layer] = cap
+        evicted = 0
+        bucket = self._slots.get(layer, OrderedDict())
+        while len(bucket) > cap:
+            victim = self._victim(layer)
+            if victim is None:
+                break
+            self._evict(layer, victim)
+            evicted += 1
+        self._check_ceiling()
+        return evicted
+
     def _ceiling(self) -> int:
         return sum(self.cap(layer) for layer in self._slots) * self._max_bytes
 
