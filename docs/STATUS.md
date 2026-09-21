@@ -117,3 +117,17 @@ independent exact-equivalence proof.
    single-sequence throughput (#29/#30).
 6. Continue resident/prefetch/kernel work only behind the quality and empirical
    gates in the roadmap issue #40.
+
+## Since (issues #16+)
+
+- #16: reference unrunnable (proven); MLX floor 109.8ms/token (ceiling
+  9.1 tok/s); flow-map ceilings; MTP verify 0.2GB measured. E2E pending.
+- #17: golden harness closed (deterministic PASS, perturb FAIL).
+- #18: FreeToken audit closed (reuse/adapt/reject map; geometry mismatch found).
+- #19: cold checkpoint IO closed (expert ~1-3ms, sustained drift 1.004).
+- #23/#24/#25: pool + staging + gated prefetch closed (NO-GO verdict).
+- #26/#27/#28: Engram cache, KV manager, unified scheduler closed.
+- #29 (offline), #31 (offline): done, live halves pending. #32–#35 closed.
+- #41: SSD policy closed (enforced + monitored).
+- Blocked on runnable inference: #20, #21, #22, #30, #36, #37, #38, #39.
+- Critical path: MLX-native runner -> #20 -> gates -> live -> release.
