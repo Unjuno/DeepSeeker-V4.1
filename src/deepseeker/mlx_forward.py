@@ -69,13 +69,13 @@ def moe_layer(x: mx.array, gate_w: mx.array, gate_b: mx.array,
         cols = [int(np.where(mask[r])[0][0]) for r in rows]
         w1, w3, w2down = expert_fn(int(expert))
         xr = x[mx.array(rows)]
-        g = xr.astype(mx.float32) @ w1.astype(mx.float32)
-        u = xr.astype(mx.float32) @ w3.astype(mx.float32)
+        g = xr.astype(mx.float32) @ w1.astype(mx.float32).T
+        u = xr.astype(mx.float32) @ w3.astype(mx.float32).T
         g = mx.minimum(g, limit)
         u = mx.clip(u, -limit, limit)
         h = (g / (1.0 + mx.exp(-g))) * u
         rw = mx.array(w_np[rows, cols], dtype=mx.float32).reshape(-1, 1)
-        out = out.at[mx.array(rows)].add((h * rw) @ w2down.astype(mx.float32))
+        out = out.at[mx.array(rows)].add((h * rw) @ w2down.astype(mx.float32).T)
         del xr, g, u, h, rw
     if trace_hook is not None:
         trace_hook(layer_id, idx_np.tolist(), w_np.tolist())
@@ -100,7 +100,7 @@ def hc_split_sinkhorn(mixes: mx.array, hc_scale: mx.array, hc_base: mx.array,
     comb = mx.exp(frag - row_max)
     comb = comb / mx.sum(comb, axis=-1, keepdims=True) + eps
     comb = comb / (mx.sum(comb, axis=-2, keepdims=True) + eps)
-    for _ in range(iters - 1):
+    for _ in range(int(iters) - 1):
         comb = comb / (mx.sum(comb, axis=-1, keepdims=True) + eps)
         comb = comb / (mx.sum(comb, axis=-2, keepdims=True) + eps)
     return pre, post, comb
@@ -110,14 +110,17 @@ def hc_mixes(x: mx.array, hc_fn: mx.array, hc_scale: mx.array, hc_base: mx.array
              hc_mult: int, norm_eps: float, iters: int = 20, eps: float = 1e-6):
     """Coefficients from the flattened stream (RMS over hc*dim jointly)."""
     flat = x.reshape(x.shape[0], x.shape[1], -1).astype(mx.float32)
-    rstd = mx.rsqrt(mx.mean(flat * flat, axis=-1, keepdims=True) + norm_eps)
-    mixes = (flat @ hc_fn.astype(mx.float32)) * rstd
+    n, hc, d = flat.shape
+    flat2d = flat.reshape(n, hc * d)
+    rstd = mx.rsqrt(mx.mean(flat2d * flat2d, axis=-1, keepdims=True) + norm_eps)
+    mixes = (flat2d @ hc_fn.astype(mx.float32).T) * rstd
     return hc_split_sinkhorn(mixes, hc_scale.astype(mx.float32),
                              hc_base.astype(mx.float32), hc_mult, iters, eps)
 
 
 def hc_pre(x: mx.array, pre_mix: mx.array) -> mx.array:
-    y = mx.sum(pre_mix[..., None].astype(mx.float32) * x.astype(mx.float32), axis=2)
+    # x [S,hc,d], pre_mix [S,hc]: collapse over the hc axis (axis 1).
+    y = mx.sum(pre_mix[..., None].astype(mx.float32) * x.astype(mx.float32), axis=1)
     return y.astype(x.dtype)
 
 
@@ -145,12 +148,16 @@ def rope_freqs(dim: int, seqlen: int, original_seq_len: int, base: float,
 
 
 def apply_rotary(x: mx.array, freqs: mx.array) -> mx.array:
-    """Rotate last-dim pairs: [.., rd] by freqs [S, rd//2] (broadcast heads)."""
+    """Rotate last-dim pairs: x [..., S?, H?, rd] by freqs [S, rd//2].
+
+    The seqlen axis broadcasts over any middle (heads) axes.
+    """
     d = x.shape[-1]
     xr = x.astype(mx.float32).reshape(*x.shape[:-1], d // 2, 2)
-    lead = [1] * (xr.ndim - 2)
-    cos = mx.cos(freqs).reshape(*lead, d // 2)
-    sin = mx.sin(freqs).reshape(*lead, d // 2)
+    s = freqs.shape[0]
+    mid = [1] * (xr.ndim - 3)
+    cos = mx.cos(freqs).reshape(s, *mid, d // 2)
+    sin = mx.sin(freqs).reshape(s, *mid, d // 2)
     re, im = xr[..., 0], xr[..., 1]
     out = mx.stack([re * cos - im * sin, re * sin + im * cos], axis=-1)
     return out.reshape(x.shape).astype(x.dtype)

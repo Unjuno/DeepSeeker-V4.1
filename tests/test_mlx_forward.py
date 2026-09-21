@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from deepseeker.mlx_forward import (
     apply_rotary,
+    hc_mixes,
     hc_post,
     hc_pre,
     hc_split_sinkhorn,
@@ -69,17 +70,33 @@ def test_rotary_preserves_norm():
                        float(mx.sum(x * x).item()), rtol=1e-4)
 
 
+def test_hc_mixes_shapes():
+    mx.random.seed(5)
+    hc, dim = 4, 8
+    mix_hc = (2 + hc) * hc
+    x = mx.random.normal((2, hc, dim))
+    fn = mx.random.normal((mix_hc, hc * dim))
+    scale = mx.ones((3,))
+    base = mx.zeros((mix_hc,))
+    mx.eval(x, fn, scale, base)
+    pre, post, comb = hc_mixes(x, fn, scale, base, hc, 1e-6)
+    mx.eval(pre, post, comb)
+    assert pre.shape == (2, hc)
+    assert post.shape == (2, hc)
+    assert comb.shape == (2, hc, hc)
+
+
 def test_hc_roundtrip_shapes():
     mx.random.seed(1)
-    x = mx.random.normal((1, 2, 4, 8))
-    pre_mix = mx.ones((1, 2, 4)) / 4
+    x = mx.random.normal((2, 4, 8))
+    pre_mix = mx.ones((2, 4)) / 4
     mx.eval(x, pre_mix)
     collapsed = hc_pre(x, pre_mix)
-    assert collapsed.shape == (1, 2, 8)
-    post = mx.ones((1, 2, 4)) / 4
-    comb = mx.ones((1, 2, 4, 4)) / 4
+    assert collapsed.shape == (2, 8)
+    post = mx.ones((2, 4)) / 4
+    comb = mx.ones((2, 4, 4)) / 4
     back = hc_post(collapsed, x, post, comb)
-    assert back.shape == (1, 2, 4, 8)
+    assert back.shape == (2, 4, 8)
 
 
 def test_sinkhorn_doubly_stochastic():
@@ -101,9 +118,9 @@ def test_moe_layer_shapes_and_trace():
     x = mx.random.normal((3, dim))
     gate_w = mx.random.normal((n_exp, dim)) * 0.1
     gate_b = mx.zeros((n_exp,))
-    bank = {e: (mx.random.normal((dim, 16)) * 0.1,
-                mx.random.normal((dim, 16)) * 0.1,
-                mx.random.normal((16, dim)) * 0.1) for e in range(n_exp)}
+    bank = {e: (mx.random.normal((16, dim)) * 0.1,
+                mx.random.normal((16, dim)) * 0.1,
+                mx.random.normal((dim, 16)) * 0.1) for e in range(n_exp)}
     mx.eval(x, gate_w, gate_b, *[a for t in bank.values() for a in t])
     seen = []
 

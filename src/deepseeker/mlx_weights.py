@@ -31,12 +31,30 @@ for _b in range(256):
     _e = (_b >> 3) & 0xF
     _m = _b & 0x7
     if _e == 0xF:
-        E4M3_TABLE[_b] = np.nan  # e4m3fn: no inf, S.111/N.111 are NaN
+        # OCP E4M3 (torch e4m3fn ground truth): only all-mantissa-ones
+        # is NaN; the rest of the exp-15 row is 256*(1+m/8) (bias 7).
+        E4M3_TABLE[_b] = np.nan if _m == 0x7 else ((-1) ** _s) * 256.0 * (1.0 + _m / 8.0)
     elif _e == 0:
         E4M3_TABLE[_b] = ((-1) ** _s) * (_m / 8.0) * 2.0**-6
     else:
-        E4M3_TABLE[_b] = ((-1) ** _s) * (1.0 + _m / 8.0) * 2.0 ** (_e - 8)
+        E4M3_TABLE[_b] = ((-1) ** _s) * (1.0 + _m / 8.0) * 2.0 ** (_e - 7)
 del _b, _s, _e, _m
+
+
+def _check_e4m3_table() -> None:
+    """Cross-check the full table against torch once at import."""
+    import torch as _torch
+
+    want = _torch.frombuffer(bytearray(range(256)), dtype=_torch.float8_e4m3fn).float().numpy()
+    got = E4M3_TABLE
+    both_nan = np.isnan(want) & np.isnan(got)
+    same = both_nan | (want == got)
+    if not same.all():
+        bad = np.where(~same)[0]
+        raise RuntimeError(f"E4M3_TABLE mismatch at bytes {bad[:8].tolist()}")
+
+
+_check_e4m3_table()
 
 
 def decode_u8m0(raw: np.ndarray) -> np.ndarray:
@@ -114,9 +132,9 @@ class ExpertLoader:
 
 
 class DenseLoader:
-    """One-shot dequant of non-expert, non-engram-embed weights to bf16."""
+    """One-shot dequant of resident weights to bf16 (skips streamed tables)."""
 
-    SKIP_SUBSYSTEMS = ("routed-expert", "engram", "mtp-expert", "vision")
+    SKIP_SUBSYSTEMS = ("routed-expert", "mtp-expert", "vision")
 
     def __init__(self, model_root: Path | str, manifest: dict) -> None:
         self._root = Path(model_root)
@@ -127,6 +145,10 @@ class DenseLoader:
         for tensor in self._manifest.get("tensors", []):
             if tensor.get("subsystem") in self.SKIP_SUBSYSTEMS:
                 continue
+            if ".engram.embed." in tensor.get("name", ""):
+                continue  # streamed rows via EngramRowCache, never resident
+            if tensor["name"].endswith(".scale"):
+                continue  # consumed with their fp8/fp4 weight, never standalone
             out[tensor["name"]] = self.load_one(tensor["name"])
         mx.eval(list(out.values()))
         return out

@@ -32,12 +32,20 @@ MANIFEST = load_json(
 
 
 def test_e4m3_table_spots():
+    import torch
+
     assert E4M3_TABLE[0x00] == 0.0
-    assert E4M3_TABLE[0x40] == pytest.approx(1.0)  # 0 1000 000
-    assert E4M3_TABLE[0x3C] == pytest.approx(0.75)  # 0 0111 100
-    assert E4M3_TABLE[0xC0] == pytest.approx(-1.0)
+    assert E4M3_TABLE[0x40] == pytest.approx(2.0)  # 0 1000 000, bias 7
+    assert E4M3_TABLE[0x3C] == pytest.approx(1.5)  # 0 0111 100
+    assert E4M3_TABLE[0xC0] == pytest.approx(-2.0)
+    assert E4M3_TABLE[0x78] == pytest.approx(256.0)  # extended range, not NaN
+    assert E4M3_TABLE[0x7E] == pytest.approx(448.0)
     assert np.isnan(E4M3_TABLE[0x7F])
     assert np.isnan(E4M3_TABLE[0xFF])
+    # full table == torch ground truth (also enforced at import)
+    want = torch.frombuffer(bytearray(range(256)), dtype=torch.float8_e4m3fn).float().numpy()
+    same = (np.isnan(want) & np.isnan(E4M3_TABLE)) | (want == E4M3_TABLE)
+    assert same.all()
 
 
 def test_fp8_block_against_torch():
