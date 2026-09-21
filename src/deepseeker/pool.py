@@ -70,6 +70,11 @@ class ResidentPool:
     def _check_ceiling(self) -> None:
         assert self.bytes_resident <= self._ceiling(), "byte ceiling violated"
 
+    def contains(self, layer: int, expert: int) -> bool:
+        """Non-counting residency probe (prefetch skip-checks must not pollute metrics)."""
+        bucket = self._slots.get(layer)
+        return bucket is not None and expert in bucket
+
     def lookup(self, layer: int, expert: int) -> np.ndarray | None:
         """Return resident bytes or None (miss). Touches recency."""
         bucket = self._slots.get(layer)
