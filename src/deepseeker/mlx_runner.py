@@ -331,7 +331,11 @@ class Runner:
                 cfg["candidate_block_size"])
         elif cfg.get("candidate_source_layer", -1) >= 0 and layer > cfg["candidate_source_layer"]:
             mask = np.asarray(self._candidates)
-            score = np.where(mask[: score.shape[0]], score, -np.inf)
+            if mask.shape != score.shape:
+                raise RuntimeError(
+                    f"candidate mask {mask.shape} vs score {score.shape} "
+                    f"at layer {layer} start_pos {start_pos} seqlen {seqlen}")
+            score = np.where(mask, score, -np.inf)
         topk = min(cfg["index_topk"], end_pos // max(ratio, 1))
         if topk <= 0:
             empty = mx.full((seqlen, 0), -1, dtype=mx.int32)
