@@ -122,28 +122,41 @@ class Runner:
 
         return run
 
-    def moe(self, layer: int, x: mx.array) -> mx.array:
+    def moe(self, layer: int, x: mx.array, token_start: int = 0) -> mx.array:
         gate_w = self._dense[f"layers.{layer}.ffn.gate.weight"]
         gate_b = self._dense[f"layers.{layer}.ffn.gate.bias"]
 
         def hook(layer_id, idx, w):
             if self._trace is not None:
-                self._trace.router(layer_id, idx, w)
+                self._trace.router(layer_id, token_start, idx, w)
 
         return F.moe_layer(x, gate_w, gate_b, self._expert_fn(layer),
                            self._shared_fn(layer), 6, 10.0, hook, layer)
 
     # -- rotary -------------------------------------------------------------
-    def _freqs_for(self, length: int) -> mx.array:
+    # Per-layer tables (reference Attention.__init__): layers WITH
+    # compress_ratio use YaRN (original 65536, base compress_rope_theta);
+    # ratio-0 layers disable YaRN (original 0, base rope_theta).
+    def _freqs_for(self, layer: int) -> mx.array:
         cfg = self._config
-        if self._freqs is None:
-            self._freqs = F.rope_freqs(
-                cfg["rope_head_dim"], cfg.get("max_seq_len") or 65536,
-                cfg.get("original_seq_len", 0), cfg["rope_theta"],
-                cfg.get("rope_factor", 40.0), cfg.get("beta_fast", 32),
-                cfg.get("beta_slow", 1))
-            mx.eval(self._freqs)
-        return self._freqs
+        cached = self._freqs.get(layer) if isinstance(self._freqs, dict) else None
+        if cached is not None:
+            return cached
+        if self._freqs is None or not isinstance(self._freqs, dict):
+            self._freqs = {}
+        ratio = cfg["compress_ratios"][layer]
+        if ratio:
+            original, base = cfg.get("original_seq_len", 0), cfg["compress_rope_theta"]
+        else:
+            original, base = 0, cfg["rope_theta"]
+        table = F.rope_freqs(
+            cfg["rope_head_dim"], cfg.get("max_seq_len") or 65536,
+            original, base,
+            cfg.get("rope_factor", 40.0), cfg.get("beta_fast", 32),
+            cfg.get("beta_slow", 1))
+        mx.eval(table)
+        self._freqs[layer] = table
+        return table
 
     # -- attention ------------------------------------------------------------
     @staticmethod
@@ -284,7 +297,7 @@ class Runner:
         n_heads, index_dim = cfg["index_n_heads"], cfg["index_head_dim"]
         rd = cfg["rope_head_dim"]
         owns_k = layer in cfg["kv_source_layers"]
-        freqs_all = self._freqs_for(1)
+        freqs_all = self._freqs_for(layer)
         if owns_k and latent is not None:
             k = F.rmsnorm(
                 latent.astype(mx.float32)
@@ -307,7 +320,7 @@ class Runner:
         q = (qr @ self._dense[p + "indexer.wq_b.weight"].astype(mx.float32).T).reshape(
             seqlen, n_heads, index_dim)
         q = mx.concatenate([q[..., :-rd], F.apply_rotary(
-            q[..., -rd:], self._freqs_for(1)[start_pos:start_pos + seqlen])], axis=-1)
+            q[..., -rd:], self._freqs_for(layer)[start_pos:start_pos + seqlen])], axis=-1)
         end_pos = start_pos + seqlen
         index_k = self._shared_indexk
         if index_k is None:
@@ -373,7 +386,7 @@ class Runner:
         win = cfg["window_size"]
         ratio = cfg["compress_ratios"][layer]
         seqlen = x.shape[0]
-        freqs = self._freqs_for(1)[start_pos:start_pos + seqlen]
+        freqs = self._freqs_for(layer)[start_pos:start_pos + seqlen]
 
         qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].astype(mx.float32).T,
                        self._dense[p + "q_norm.weight"], 1e-20)
@@ -413,7 +426,7 @@ class Runner:
                 latent = self._run_compressor(layer, x, start_pos)
                 if latent is not None:
                     ck = self._register_compress(layer, self._rotate_latent(
-                        latent, ratio, start_pos, seqlen), ratio)
+                        layer, latent, ratio, start_pos, seqlen), ratio)
                     self._shared_compress = ck
                 own = self._compress.get(layer)
                 if own is None:
@@ -445,10 +458,10 @@ class Runner:
         right = np.where(right >= 0, right + base, -1)
         return mx.array(np.concatenate([left, right], axis=-1).astype(np.int32))
 
-    def _rotate_latent(self, latent: mx.array, ratio: int, start_pos: int, seqlen: int) -> mx.array:
+    def _rotate_latent(self, layer: int, latent: mx.array, ratio: int, start_pos: int, seqlen: int) -> mx.array:
         """Rotate each latent row with its group-start position frequencies."""
         rd = self._config["rope_head_dim"]
-        freqs_all = self._freqs_for(1)
+        freqs_all = self._freqs_for(layer)
         n = latent.shape[0]
         if start_pos == 0:
             rows = np.minimum(np.arange(n) * ratio, freqs_all.shape[0] - 1)
@@ -566,7 +579,7 @@ class Runner:
             hc, eps, iters, hc_eps)
         xin = F.hc_pre(x, attn_pre)
         xin = F.rmsnorm(xin, self._dense[p + "ffn_norm.weight"], cfg.get("norm_eps", 1e-20))
-        xf = self.moe(layer, xin)
+        xf = self.moe(layer, xin, start_pos)
         x = F.hc_post(xf, x, ffn_post, ffn_comb)
         return x, ffn_pre
 
