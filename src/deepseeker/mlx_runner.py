@@ -211,30 +211,33 @@ class Runner:
         wgate = self._dense[p + "compressor.wgate.weight"]
         xf = x.astype(mx.float32)
         kv, score = xf @ wkv.astype(mx.float32).T, xf @ wgate.astype(mx.float32).T
+        st = self._kv_state.get(layer)
+        sc = self._score_state.get(layer)
+        if st is None:
+            st = mx.zeros((ratio, head_dim))
+            sc = mx.full((ratio, head_dim), float("-inf"))
+            mx.eval(st, sc)
+            self._kv_state[layer], self._score_state[layer] = st, sc
         if start_pos == 0:
             if seqlen >= ratio:
                 rem = seqlen % ratio
                 cut = seqlen - rem
                 if rem:
-                    self._kv_state[layer] = kv[cut:]
-                    self._score_state[layer] = score[cut:]
+                    st = mx.concatenate([kv[cut:], st[rem:]], axis=0)
+                    sc = mx.concatenate([score[cut:], sc[rem:]], axis=0)
+                    self._kv_state[layer], self._score_state[layer] = st, sc
                 kv = kv[:cut].reshape(-1, ratio, head_dim)
                 score = score[:cut].reshape(-1, ratio, head_dim)
                 kv = (kv * mx.softmax(score, axis=1)).sum(axis=1)
             else:
-                self._kv_state[layer] = kv
-                self._score_state[layer] = score
+                st = mx.concatenate([kv, st[seqlen:]], axis=0)
+                sc = mx.concatenate([score, sc[seqlen:]], axis=0)
+                self._kv_state[layer], self._score_state[layer] = st, sc
                 return None
         else:
             slot = start_pos % ratio
-            st = self._kv_state.get(layer)
-            sc = self._score_state.get(layer)
-            if st is None:
-                st = mx.zeros((ratio, head_dim))
-                sc = mx.full((ratio, head_dim), float("-inf"))
-                mx.eval(st, sc)
-            st = st.at[slot].add(kv[0] - st[slot])
-            sc = sc.at[slot].add(score[0] - sc[slot])
+            st = mx.concatenate([st[:slot], kv[:1], st[slot + 1:]], axis=0)
+            sc = mx.concatenate([sc[:slot], score[:1], sc[slot + 1:]], axis=0)
             self._kv_state[layer], self._score_state[layer] = st, sc
             if (start_pos + 1) % ratio != 0:
                 return None
@@ -404,6 +407,7 @@ class Runner:
 
         topk_all = idxs
         if ratio:
+            compress_len = (start_pos + seqlen) // ratio
             latent = None
             if layer in cfg["kv_source_layers"]:
                 latent = self._run_compressor(layer, x, start_pos)
@@ -411,9 +415,15 @@ class Runner:
                     ck = self._register_compress(layer, self._rotate_latent(
                         latent, ratio, start_pos, seqlen), ratio)
                     self._shared_compress = ck
+                own = self._compress.get(layer)
+                if own is None:
+                    own = mx.zeros((0, cfg["head_dim"]))
+                    mx.eval(own)
+                self._shared_compress = own
             ck = self._shared_compress
             cidx = self.indexer_topk(layer, x, qr, latent, start_pos, seqlen)
             if ck is not None:
+                ck = ck[:compress_len]
                 window_kv = mx.concatenate([window_kv, ck], axis=0)
                 topk_all = self._shift_compress_idxs(
                     idxs, cidx, int(window_kv.shape[0]) - int(ck.shape[0]))
