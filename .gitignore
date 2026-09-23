@@ -77,6 +77,7 @@ upstream/*
 !profiles/traces/
 profiles/traces/*
 !profiles/traces/*.jsonl
+!profiles/traces/*-summary.json
 !profiles/runs/
 profiles/runs/*
 !profiles/runs/autotune/

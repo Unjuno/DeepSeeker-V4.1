@@ -1,0 +1,21 @@
+{
+ "prompt": "Say hello.",
+ "tokens": [
+  43,
+  4571,
+  2887,
+  304
+ ],
+ "text": "I'm going to",
+ "timings": {
+  "prefill_s": 140.35876862501027,
+  "decode_s": 103.65769354102667,
+  "tokens": 4,
+  "tok_s": 0.038588549130864465
+ },
+ "expert_loads": 2160,
+ "expert_cache_hits": 0,
+ "expert_evictions": 2096,
+ "expert_cap": 64,
+ "trace_records": 650
+}

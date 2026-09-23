@@ -1,0 +1,21 @@
+{
+ "prompt": "37 times 41 equals what? Number only.",
+ "tokens": [
+  1613,
+  223,
+  18,
+  271
+ ],
+ "text": "... 0\n\n",
+ "timings": {
+  "prefill_s": 240.97358654101845,
+  "decode_s": 281.0063829580322,
+  "tokens": 4,
+  "tok_s": 0.014234552104808925
+ },
+ "expert_loads": 2817,
+ "expert_cache_hits": 0,
+ "expert_evictions": 2753,
+ "expert_cap": 64,
+ "trace_records": 930
+}

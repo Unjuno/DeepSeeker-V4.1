@@ -1,0 +1,21 @@
+{
+ "prompt": "Summarize the water cycle in one sentence.",
+ "tokens": [
+  32111,
+  377,
+  201,
+  73
+ ],
+ "text": "Based on\ng",
+ "timings": {
+  "prefill_s": 255.66084208304528,
+  "decode_s": 120.40862004208611,
+  "tokens": 4,
+  "tok_s": 0.03322021295985196
+ },
+ "expert_loads": 2815,
+ "expert_cache_hits": 0,
+ "expert_evictions": 2751,
+ "expert_cap": 64,
+ "trace_records": 890
+}

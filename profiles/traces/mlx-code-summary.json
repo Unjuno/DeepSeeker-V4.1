@@ -1,0 +1,21 @@
+{
+ "prompt": "Write a Python function that returns the square of its argument.",
+ "tokens": [
+  201,
+  43,
+  759,
+  554
+ ],
+ "text": "\nI will not",
+ "timings": {
+  "prefill_s": 221.24004387494642,
+  "decode_s": 98.59305200097151,
+  "tokens": 4,
+  "tok_s": 0.040570810202331345
+ },
+ "expert_loads": 2996,
+ "expert_cache_hits": 0,
+ "expert_evictions": 2932,
+ "expert_cap": 64,
+ "trace_records": 1010
+}
