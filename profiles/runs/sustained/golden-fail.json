@@ -1,0 +1,44 @@
+{
+ "schema": "deepseeker.bench/v1",
+ "created_at_utc": "2026-09-23T06:33:22.471197+00:00",
+ "machine_id": "Apple M1 Max/26.6.2",
+ "revision": "dba1be0a40aa45a94ad051997016db3960a90277",
+ "backend": "mlx-floor+perturb",
+ "corpus_id": "deepseeker.bench-corpus/v1",
+ "settings": {
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "max_new_tokens": 32,
+  "seed": 1337
+ },
+ "ttft_s": {
+  "n": 9,
+  "median": 0.0007313332054764033,
+  "min": 0.000691008404828608,
+  "max": 0.000814891594927758,
+  "range": 0.00012388319009914994
+ },
+ "decode_tok_s": {
+  "n": 9,
+  "median": 5.69735742267087,
+  "min": 5.113154550374337,
+  "max": 6.029835002803087,
+  "range": 0.91668045242875
+ },
+ "accepted_tokens": 288,
+ "equivalence": {
+  "verdict": "FAIL",
+  "per_case": [
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL",
+   "FAIL"
+  ]
+ },
+ "io_counters": {}
+}

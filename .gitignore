@@ -89,3 +89,10 @@ profiles/runs/autotune/*
 !profiles/runs/mtp/
 profiles/runs/mtp/*
 !profiles/runs/mtp/*.json
+!profiles/runs/sustained/
+profiles/runs/sustained/*
+!profiles/runs/sustained/*.csv
+!profiles/runs/sustained/*.json
+!profiles/runs/sustained/*.log
+!profiles/runs/sustained/*.md
+!profiles/runs/sustained/README.md
