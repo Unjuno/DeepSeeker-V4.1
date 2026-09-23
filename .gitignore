@@ -77,3 +77,14 @@ upstream/*
 !profiles/traces/
 profiles/traces/*
 !profiles/traces/*.jsonl
+!profiles/runs/
+profiles/runs/*
+!profiles/runs/autotune/
+profiles/runs/autotune/*
+!profiles/runs/autotune/recommended.json
+!profiles/runs/autotune/sim-real.json
+!profiles/runs/autotune/shadow0.json
+!profiles/runs/autotune/shadow1.json
+!profiles/runs/mtp/
+profiles/runs/mtp/*
+!profiles/runs/mtp/*.json

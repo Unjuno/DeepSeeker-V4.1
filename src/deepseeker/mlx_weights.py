@@ -113,12 +113,17 @@ class ExpertLoader:
         data = read_bytes(self._root, entry["shard"], *entry["file_range"])
         return np.frombuffer(data, dtype=np.uint8).copy(), tuple(entry["shape"])
 
-    def load_expert(self, layer: int, expert: int) -> dict[str, mx.array]:
-        """Dequantized {w1, w2, w3} bf16 arrays with scales folded in."""
+    def load_expert(self, layer: int, expert: int, prefix: str = "layers") -> dict[str, mx.array]:
+        """Dequantized {w1, w2, w3} bf16 arrays with scales folded in.
+
+        prefix='layers' for backbone experts; prefix='mtp' uses mtp.{layer}.ffn.
+        """
         out = {}
         for role in ("w1", "w2", "w3"):
-            w = self._by_name[f"layers.{layer}.ffn.experts.{expert}.{role}.weight"]
-            s = self._by_name[f"layers.{layer}.ffn.experts.{expert}.{role}.scale"]
+            base = f"{prefix}.{layer}.ffn.experts.{expert}.{role}" if prefix == "layers" \
+                else f"mtp.{layer}.ffn.experts.{expert}.{role}"
+            w = self._by_name[f"{base}.weight"]
+            s = self._by_name[f"{base}.scale"]
             wdata = read_bytes(self._root, w["shard"], *w["file_range"])
             sdata = read_bytes(self._root, s["shard"], *s["file_range"])
             rows, pair_cols = w["shape"]

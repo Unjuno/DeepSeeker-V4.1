@@ -9,7 +9,7 @@ embed rows streamed via EngramRowCache (#26).
 
 Trace hooks record authoritative routing/KV/Engram events (#20) with
 zero effect on numerics. Deviations: bf16 caches (not fp8-quantized),
-no distributed, no vision/DSpark/MTP.
+no distributed, no vision. DSpark/MTP draft path implemented (#29).
 """
 
 from __future__ import annotations
@@ -53,8 +53,9 @@ class Runner:
         self._shared_topk = None
         self._shared_indexk = None
         self._candidates = None
-        self._expert_cache: dict[tuple[int, int], dict] = {}
-        self._expert_lru: list[tuple[int, int]] = []
+        self._expert_cache: dict[tuple[str, int, int], dict] = {}
+        self._expert_lru: list[tuple[str, int, int]] = []
+        self._mtp_window: dict[int, mx.array] = {}
         self._expert_cache_cap = expert_cache_cap  # experts; ~70MB bf16 each
         self.expert_loads = 0
         self.expert_cache_hits = 0
@@ -73,8 +74,7 @@ class Runner:
 
     # -- embedding / head ------------------------------------------------
     def embed(self, ids: list[int]) -> mx.array:
-        table = next(v for k, v in self._dense.items() if k.endswith("embed.weight")
-                     and "engram" not in k)
+        table = self._dense["embed.weight"]
         return table[mx.array(ids)]
 
     def head_logits(self, h: mx.array) -> mx.array:
@@ -97,9 +97,9 @@ class Runner:
                 evicted += 1
         return evicted
 
-    def _expert_fn(self, layer: int):
+    def _expert_fn(self, layer: int, ns: str = "layers"):
         def fetch(expert: int):
-            key = (layer, expert)
+            key = (ns, layer, expert)
             hit = self._expert_cache.get(key)
             if hit is not None:
                 self.expert_cache_hits += 1
@@ -110,7 +110,7 @@ class Runner:
                 self._expert_lru.append(key)
                 return hit["w1"], hit["w3"], hit["w2"]
             self.expert_loads += 1
-            d = self._expert_loader.load_expert(layer, expert)
+            d = self._expert_loader.load_expert(layer, expert, prefix=ns)
             self._expert_cache[key] = d
             self._expert_lru.append(key)
             while len(self._expert_cache) > self._expert_cache_cap:
@@ -121,8 +121,11 @@ class Runner:
             return d["w1"], d["w3"], d["w2"]
         return fetch
 
-    def _shared_fn(self, layer: int):
-        prefix = f"layers.{layer}.ffn.shared_experts"
+    def _shared_fn(self, layer: int, ns: str = "layers"):
+        if ns == "mtp":
+            prefix = f"mtp.{layer}.ffn.shared_experts"
+        else:
+            prefix = f"layers.{layer}.ffn.shared_experts"
         w1 = self._dense[prefix + ".w1.weight"]
         w3 = self._dense[prefix + ".w3.weight"]
         w2 = self._dense[prefix + ".w2.weight"]
@@ -135,29 +138,37 @@ class Runner:
 
         return run
 
-    def moe(self, layer: int, x: mx.array, token_start: int = 0) -> mx.array:
-        gate_w = self._dense[f"layers.{layer}.ffn.gate.weight"]
-        gate_b = self._dense[f"layers.{layer}.ffn.gate.bias"]
+    def moe(self, layer: int, x: mx.array, token_start: int = 0,
+            ns: str = "layers", top_k: int = 6) -> mx.array:
+        base = f"mtp.{layer}" if ns == "mtp" else f"layers.{layer}"
+        gate_w = self._dense[f"{base}.ffn.gate.weight"]
+        gate_b = self._dense[f"{base}.ffn.gate.bias"]
 
         def hook(layer_id, idx, w):
-            if self._trace is not None:
+            # Backbone schema only records layers [0, n_layers); skip MTP drafts.
+            if self._trace is not None and ns == "layers":
                 self._trace.router(layer_id, token_start, idx, w)
 
-        return F.moe_layer(x, gate_w, gate_b, self._expert_fn(layer),
-                           self._shared_fn(layer), 6, 10.0, hook, layer)
+        return F.moe_layer(x, gate_w, gate_b, self._expert_fn(layer, ns),
+                           self._shared_fn(layer, ns), top_k, 10.0, hook, layer)
 
     # -- rotary -------------------------------------------------------------
     # Per-layer tables (reference Attention.__init__): layers WITH
     # compress_ratio use YaRN (original 65536, base compress_rope_theta);
     # ratio-0 layers disable YaRN (original 0, base rope_theta).
-    def _freqs_for(self, layer: int) -> mx.array:
+    def _freqs_for(self, layer: int, ns: str = "layers") -> mx.array:
         cfg = self._config
-        cached = self._freqs.get(layer) if isinstance(self._freqs, dict) else None
+        key = layer if ns == "layers" else (ns, layer)
+        cached = self._freqs.get(key) if isinstance(self._freqs, dict) else None
         if cached is not None:
             return cached
         if self._freqs is None or not isinstance(self._freqs, dict):
             self._freqs = {}
-        ratio = cfg["compress_ratios"][layer]
+        # DSpark stages are always compress_ratio 0 (asserted upstream).
+        if ns == "mtp":
+            ratio = 0
+        else:
+            ratio = cfg["compress_ratios"][layer]
         if ratio:
             original, base = cfg.get("original_seq_len", 0), cfg["compress_rope_theta"]
         else:
@@ -168,21 +179,41 @@ class Runner:
             cfg.get("rope_factor", 40.0), cfg.get("beta_fast", 32),
             cfg.get("beta_slow", 1))
         mx.eval(table)
-        self._freqs[layer] = table
+        self._freqs[key] = table
         return table
 
     # -- attention ------------------------------------------------------------
     @staticmethod
     def _window_topk(win: int, seqlen: int, start_pos: int) -> mx.array:
+        """Ring slots each query attends to; -1 marks an empty/invalid slot.
+
+        start_pos==0: causal window inside the prefill chunk (seqlen rows).
+        start_pos>0, seqlen==1: whole ring, oldest first (reference decode).
+        start_pos>0, seqlen>1: multi-token verify — rows index into
+        concat(old_ring[win], chunk[seqlen]); history uses ring slots,
+        chunk positions use win + (q - start_pos). Requires the ring to
+        still hold pre-forward history (call before writing the chunk).
+        """
         if start_pos == 0:
             end = np.arange(seqlen)[:, None]
             idxs = np.clip(end - win + 1, 0, None) + np.arange(min(seqlen, win))[None, :]
-            idxs = np.where(idxs > end, -1, idxs)
-        else:
+            return mx.array(np.where(idxs > end, -1, idxs).astype(np.int32))
+        if seqlen == 1:
             oldest = start_pos % win + 1
             idxs = np.concatenate([np.arange(oldest, win), np.arange(oldest)])[None, :]
             idxs = np.where(idxs > start_pos, -1, idxs)
-        return mx.array(idxs.astype(np.int32))
+            return mx.array(idxs.astype(np.int32))
+        # Multi-token decode: width = win (history ring) + seqlen (current chunk).
+        idxs = np.full((seqlen, win + seqlen), -1, dtype=np.int32)
+        for i in range(seqlen):
+            p = start_pos + i
+            lo = max(0, p - win + 1)
+            for col, q in enumerate(range(lo, p + 1)):
+                if q < start_pos:
+                    idxs[i, col] = q % win
+                else:
+                    idxs[i, col] = win + (q - start_pos)
+        return mx.array(idxs)
 
     def _sparse_attn(self, q: mx.array, kv: mx.array, topk_idxs: mx.array,
                      sink: mx.array, scale: float) -> mx.array:
@@ -260,7 +291,7 @@ class Runner:
                 sc = mx.concatenate([score, sc[seqlen:]], axis=0)
                 self._kv_state[layer], self._score_state[layer] = st, sc
                 return None
-        else:
+        elif seqlen == 1:
             slot = start_pos % ratio
             st = mx.concatenate([st[:slot], kv[:1], st[slot + 1:]], axis=0)
             sc = mx.concatenate([sc[:slot], score[:1], sc[slot + 1:]], axis=0)
@@ -268,6 +299,20 @@ class Runner:
             if (start_pos + 1) % ratio != 0:
                 return None
             kv = (st * mx.softmax(sc, axis=0)).sum(axis=0, keepdims=True)
+        else:
+            # Multi-token decode: walk each absolute position through the ring state.
+            latents = []
+            for i in range(seqlen):
+                pos = start_pos + i
+                slot = pos % ratio
+                st = mx.concatenate([st[:slot], kv[i:i + 1], st[slot + 1:]], axis=0)
+                sc = mx.concatenate([sc[:slot], score[i:i + 1], sc[slot + 1:]], axis=0)
+                if (pos + 1) % ratio == 0:
+                    latents.append((st * mx.softmax(sc, axis=0)).sum(axis=0, keepdims=True))
+            self._kv_state[layer], self._score_state[layer] = st, sc
+            if not latents:
+                return None
+            kv = mx.concatenate(latents, axis=0)
         return F.rmsnorm(kv, self._dense[p + "compressor.norm.weight"], 1e-20)
 
     def _select_candidates(self, index_score: mx.array, compress_lens,
@@ -319,14 +364,25 @@ class Runner:
             n_lat = k.shape[0]
             if start_pos == 0:
                 kfreq = freqs_all[: n_lat * ratio:ratio][:n_lat]
+            elif ratio == 1:
+                kfreq = freqs_all[start_pos:start_pos + n_lat]
             else:
-                kfreq = freqs_all[start_pos + 1 - ratio:start_pos + 2 - ratio]
+                rows = [pos + 1 - ratio for pos in range(start_pos, start_pos + seqlen)
+                        if (pos + 1) % ratio == 0]
+                if len(rows) != n_lat:
+                    raise RuntimeError(
+                        f"index k rows {n_lat} vs completions {len(rows)}")
+                kfreq = freqs_all[rows]
             k = mx.concatenate([k[..., :-rd], F.apply_rotary(k[..., -rd:], kfreq)], axis=-1)
             k_cache = self._indexk.get(layer)
             pos = start_pos // max(ratio, 1)
+            need = pos + n_lat
             if k_cache is None:
-                k_cache = mx.zeros((pos + n_lat + 64, index_dim))
+                k_cache = mx.zeros((need + 64, index_dim))
                 mx.eval(k_cache)
+            elif k_cache.shape[0] < need:
+                k_cache = mx.concatenate(
+                    [k_cache, mx.zeros((need - k_cache.shape[0] + 64, index_dim))], axis=0)
             k_cache = k_cache.at[pos:pos + n_lat].add(k - k_cache[pos:pos + n_lat])
             self._indexk[layer] = k_cache
             self._shared_indexk = k_cache
@@ -353,7 +409,11 @@ class Runner:
             score = np.where(np.arange(score.shape[1]) >= cl, -np.inf, score)
             compress_lens = cl
         else:
-            compress_lens = end_pos // max(ratio, 1)
+            # Per-query: query i at absolute pos start_pos+i sees (pos+1)//ratio groups.
+            cl = ((np.arange(start_pos, start_pos + seqlen) + 1)
+                  // max(ratio, 1))[:, None]
+            score = np.where(np.arange(score.shape[1]) >= cl, -np.inf, score)
+            compress_lens = cl
         if layer == cfg.get("candidate_source_layer", -1):
             self._candidates = self._select_candidates(
                 mx.array(score), compress_lens, cfg["candidate_topk_blocks"],
@@ -424,11 +484,20 @@ class Runner:
                         if cutoff else tail_new)
             window_kv = kv_new
             idxs = self._window_topk(win, seqlen, 0)
-        else:
+        elif seqlen == 1:
             ring = ring.at[start_pos % win].add(
                 kv_new[0].astype(mx.bfloat16) - ring[start_pos % win])
             window_kv = ring
             idxs = self._window_topk(win, 1, start_pos)
+        else:
+            # Multi-token verify: attend over pre-forward ring + chunk (causal),
+            # then commit the chunk into the ring for subsequent steps.
+            kv_bf = kv_new.astype(mx.bfloat16)
+            idxs = self._window_topk(win, seqlen, start_pos)
+            window_kv = mx.concatenate([ring, kv_bf], axis=0)
+            for i in range(seqlen):
+                slot = (start_pos + i) % win
+                ring = ring.at[slot].add(kv_bf[i] - ring[slot])
         self._window[layer] = ring
 
         topk_all = idxs
@@ -484,9 +553,16 @@ class Runner:
         if start_pos == 0:
             rows = np.minimum(np.arange(n) * ratio, freqs_all.shape[0] - 1)
             freqs = mx.array(np.asarray(freqs_all)[rows])
+        elif ratio == 1:
+            freqs = freqs_all[start_pos:start_pos + n]
         else:
-            freqs = freqs_all[start_pos + 1 - ratio:start_pos + 2 - ratio]
-            freqs = mx.broadcast_to(freqs, (n, freqs.shape[-1]))
+            rows = [pos + 1 - ratio for pos in range(start_pos, start_pos + seqlen)
+                    if (pos + 1) % ratio == 0]
+            if len(rows) != n:
+                raise RuntimeError(
+                    f"latent rows {n} vs completions {len(rows)} "
+                    f"start_pos={start_pos} seqlen={seqlen} ratio={ratio}")
+            freqs = mx.array(np.asarray(freqs_all)[rows])
         tail = F.apply_rotary(latent[..., -rd:], freqs)
         return mx.concatenate([latent[..., :-rd], tail], axis=-1)
 
@@ -575,10 +651,15 @@ class Runner:
         return mx.array(out.astype(np.float32)).astype(x.dtype)
 
     # -- block + transformer ------------------------------------------------------
-    def block(self, layer: int, x: mx.array, start_pos: int, pre_mix: mx.array) -> tuple[mx.array, mx.array]:
-        """One Block: hc mixes -> attn -> hc_post -> hc mixes -> MoE -> hc_post."""
+    def block(self, layer: int, x: mx.array, start_pos: int, pre_mix: mx.array,
+              ns: str = "layers", main_x: mx.array | None = None,
+              top_k: int = 6) -> tuple[mx.array, mx.array]:
+        """One Block: hc mixes -> attn -> hc_post -> hc mixes -> MoE -> hc_post.
+
+        ns='mtp' uses mtp.{layer}. weights; main_x routes to DSparkAttention.
+        """
         cfg = self._config
-        p = f"layers.{layer}."
+        p = (f"mtp.{layer}." if ns == "mtp" else f"layers.{layer}.")
         hc = cfg["hc_mult"]
         eps = cfg.get("norm_eps", 1e-20)
         iters = int(cfg.get("hc_sinkhorn_iters", 20))
@@ -589,7 +670,10 @@ class Runner:
             hc, eps, iters, hc_eps)
         xin = F.hc_pre(x, pre_mix)
         xin = F.rmsnorm(xin, self._dense[p + "attn_norm.weight"], cfg.get("norm_eps", 1e-20))
-        xa = self.attention(layer, xin, start_pos)
+        if ns == "mtp":
+            xa = self.dspark_attention(layer, xin, start_pos, main_x)
+        else:
+            xa = self.attention(layer, xin, start_pos)
         x = F.hc_post(xa, x, attn_post, attn_comb)
         ffn_pre, ffn_post, ffn_comb = F.hc_mixes(
             x, self._dense[p + "hc_ffn_fn"],
@@ -597,12 +681,17 @@ class Runner:
             hc, eps, iters, hc_eps)
         xin = F.hc_pre(x, attn_pre)
         xin = F.rmsnorm(xin, self._dense[p + "ffn_norm.weight"], cfg.get("norm_eps", 1e-20))
-        xf = self.moe(layer, xin, start_pos)
+        xf = self.moe(layer, xin, start_pos, ns=ns, top_k=top_k)
         x = F.hc_post(xf, x, ffn_post, ffn_comb)
         return x, ffn_pre
 
-    def forward(self, token_ids: list[int], start_pos: int) -> mx.array:
-        """Text path: embed -> hc expand -> [engram] 40 blocks -> norm -> head."""
+    def forward(self, token_ids: list[int], start_pos: int,
+                want_main: bool = False) -> mx.array | tuple[mx.array, mx.array]:
+        """Text path: embed -> hc expand -> [engram] 40 blocks -> norm -> head.
+
+        want_main also returns cat of target-layer (37,38,39) mean-pooled hiddens
+        for the DSpark MTP draft head (#29).
+        """
         cfg = self._config
         hc = cfg["hc_mult"]
         h = self.embed(token_ids)  # [S, dim]
@@ -613,13 +702,308 @@ class Runner:
         hashes = None
         if cfg.get("engram_layer_ids"):
             hashes = self._engram_hash_ids(token_ids, start_pos)
+        targets = set(cfg.get("dspark_target_layer_ids") or ())
+        main_parts: list[mx.array] = []
         for layer in range(cfg["n_layers"]):
             if hashes is not None and layer in cfg["engram_layer_ids"]:
                 li = cfg["engram_layer_ids"].index(layer)
                 h = self.engram_forward(layer, start_pos, h, hashes[:, li, :])
+            if want_main and layer in targets:
+                main_parts.append(mx.mean(h, axis=1))  # [S, dim]
             h, pre_mix = self.block(layer, h, start_pos, pre_mix)
         final = F.hc_pre(h, pre_mix)
-        return self.head_logits(final)
+        logits = self.head_logits(final)
+        if want_main:
+            main_hidden = mx.concatenate(main_parts, axis=-1)  # [S, 3*dim]
+            return logits, main_hidden
+        return logits
+
+    def dspark_attention(self, stage: int, x: mx.array, start_pos: int,
+                         main_x: mx.array) -> mx.array:
+        """DSparkAttention: window ring seeded by main_kv; draft queries only.
+
+        compress_ratio == 0 (window-only). start_pos==0 seeds the ring from
+        main_x and returns x unchanged (prefill path).
+        """
+        cfg = self._config
+        p = f"mtp.{stage}.attn."
+        n_heads, head_dim = cfg["n_heads"], cfg["head_dim"]
+        rd = cfg["rope_head_dim"]
+        win = cfg["window_size"]
+        freqs_m = self._freqs_for(stage, "mtp")[start_pos:start_pos + main_x.shape[0]]
+        # main_kv from main_x (projected target hidden), roped at main positions
+        mkv = main_x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+        mkv = mx.concatenate(
+            [mkv[..., :-rd], F.apply_rotary(mkv[..., -rd:], freqs_m)], axis=-1)
+        ring = self._mtp_window.get(stage)
+        if ring is None:
+            ring = mx.zeros((win, head_dim), dtype=mx.bfloat16)
+            mx.eval(ring)
+        if start_pos == 0:
+            seqlen = int(main_x.shape[0])
+            if seqlen <= win:
+                ring = ring.at[:seqlen].add(mkv.astype(mx.bfloat16) - ring[:seqlen])
+            else:
+                cutoff = seqlen % win
+                tail = mkv[-win:].astype(mx.bfloat16)
+                ring = (mx.concatenate([tail[win - cutoff:], tail[:win - cutoff]], axis=0)
+                        if cutoff else tail)
+            self._mtp_window[stage] = ring
+            return x
+        block = int(x.shape[0])
+        seqlen = int(main_x.shape[0])
+        freqs_d = self._freqs_for(stage, "mtp")[start_pos + seqlen:start_pos + seqlen + block]
+        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].astype(mx.float32).T,
+                       self._dense[p + "q_norm.weight"], 1e-20)
+        q = (qr @ self._dense[p + "wq_b.weight"].astype(mx.float32).T).reshape(
+            block, n_heads, head_dim)
+        q = mx.concatenate([q[..., :-rd], F.apply_rotary(q[..., -rd:], freqs_d)], axis=-1)
+        kv_new = x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+        kv_new = mx.concatenate(
+            [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs_d)], axis=-1)
+        # write single main_kv row (decode seqlen==1) into ring at start_pos
+        ring = ring.at[start_pos % win].add(
+            mkv[0].astype(mx.bfloat16) - ring[start_pos % win])
+        self._mtp_window[stage] = ring
+        hist = min(win, start_pos + 1)
+        kv_all = mx.concatenate([ring, kv_new.astype(mx.bfloat16)], axis=0)
+        base = np.concatenate([np.arange(hist), win + np.arange(block)])
+        idxs = np.tile(base.astype(np.int32), (block, 1))
+        sink = self._dense[p + "attn_sink"].astype(mx.float32)
+        out = self._sparse_attn(q, kv_all, mx.array(idxs), sink, head_dim**-0.5)
+        out = mx.concatenate([out[..., :-rd], self._unrotary(out[..., -rd:], freqs_d)], axis=-1)
+        o_groups = cfg.get("o_groups", 8)
+        o_lora = cfg.get("o_lora_rank", 1024)
+        wo_a = self._dense[p + "wo_a.weight"].reshape(o_groups, o_lora, -1)
+        og = out.reshape(block, o_groups, -1)
+        og = mx.einsum("sgd,grd->sgr", og.astype(mx.float32), wo_a.astype(mx.float32))
+        return (og.reshape(block, -1).astype(mx.float32)
+                @ self._dense[p + "wo_b.weight"].astype(mx.float32).T)
+
+    def _snapshot_caches(self) -> dict:
+        return {
+            "window": dict(self._window),
+            "compress": dict(self._compress),
+            "indexk": dict(self._indexk),
+            "kv_state": dict(self._kv_state),
+            "score_state": dict(self._score_state),
+            "shared_compress": self._shared_compress,
+            "shared_topk": self._shared_topk,
+            "shared_indexk": self._shared_indexk,
+            "candidates": self._candidates,
+            "mtp_window": dict(self._mtp_window),
+        }
+
+    def _restore_caches(self, snap: dict) -> None:
+        self._window = dict(snap["window"])
+        self._compress = dict(snap["compress"])
+        self._indexk = dict(snap["indexk"])
+        self._kv_state = dict(snap["kv_state"])
+        self._score_state = dict(snap["score_state"])
+        self._shared_compress = snap["shared_compress"]
+        self._shared_topk = snap["shared_topk"]
+        self._shared_indexk = snap["shared_indexk"]
+        self._candidates = snap["candidates"]
+        self._mtp_window = dict(snap["mtp_window"])
+
+    @staticmethod
+    def _sample(last: np.ndarray, temperature: float) -> int:
+        if temperature == 0:
+            return int(np.argmax(last))
+        probs = np.exp(last / max(temperature, 1e-5))
+        probs /= probs.sum()
+        return int(np.random.choice(len(probs), p=probs))
+
+    def mtp_seed(self, main_hidden: mx.array) -> None:
+        """Prefill: seed each MTP stage window from main_hidden (start_pos==0)."""
+        cfg = self._config
+        w_proj = self._dense["mtp.0.main_proj.weight"]
+        main_x = main_hidden.astype(mx.float32) @ w_proj.astype(mx.float32).T
+        main_x = F.rmsnorm(main_x, self._dense["mtp.0.main_norm.weight"],
+                           cfg.get("norm_eps", 1e-20))
+        dummy = mx.zeros((main_x.shape[0], cfg["dim"]))
+        for stage in range(int(cfg.get("n_mtp_layers", 0))):
+            self.dspark_attention(stage, dummy, 0, main_x)
+            mx.eval(self._mtp_window[stage])
+
+    def mtp_draft(self, main_hidden: mx.array, input_ids: list[int],
+                  start_pos: int) -> list[int]:
+        """DSpark draft: propose block_size tokens after input_ids.
+
+        main_hidden: [1, 3*dim] from the target forward that produced the
+        logits for input_ids (reference forward_spec).
+        Returns output_ids[1:] (block_size draft tokens).
+        """
+        cfg = self._config
+        hc = cfg["hc_mult"]
+        B = int(cfg.get("dspark_block_size", 5))
+        noise = int(cfg.get("dspark_noise_token_id", 0))
+        n_mtp = int(cfg.get("n_mtp_layers", 0))
+        if n_mtp < 1 or B < 1 or start_pos <= 0:
+            return []
+        w_proj = self._dense["mtp.0.main_proj.weight"]
+        main_x = main_hidden.astype(mx.float32) @ w_proj.astype(mx.float32).T
+        main_x = F.rmsnorm(main_x, self._dense["mtp.0.main_norm.weight"],
+                           cfg.get("norm_eps", 1e-20))  # [1, dim]
+        draft_ids = [noise] * B
+        draft_ids[0] = int(input_ids[0])
+        h = self.embed(draft_ids)  # [B, dim]
+        h = mx.broadcast_to(h[:, None, :], (B, hc, h.shape[1]))
+        pre_mix = mx.zeros((B, hc))
+        pre_mix = pre_mix.at[:, 0].add(1.0)
+        mx.eval(h, pre_mix, main_x)
+        top_k = int(cfg.get("dspark_n_activated_experts", 3))
+        for stage in range(n_mtp):
+            h, pre_mix = self.block(
+                stage, h, start_pos, pre_mix, ns="mtp",
+                main_x=main_x, top_k=top_k)
+        # forward_head: hc_pre -> mtp.2.norm -> shared head + markov bias
+        x = F.hc_pre(h, pre_mix)  # [B, dim]
+        x = F.rmsnorm(x, self._dense["mtp.2.norm.weight"],
+                      cfg.get("norm_eps", 1e-20))
+        logits = x.astype(mx.float32) @ self._dense["head.weight"].astype(mx.float32).T
+        emb_w = self._dense["mtp.2.markov_head.embed.weight"]  # [V, R]
+        head_w = self._dense["mtp.2.markov_head.head.weight"]  # [V, R]
+        out0 = int(input_ids[0])
+        drafts: list[int] = []
+        cur = out0
+        for i in range(B):
+            e = emb_w[cur]  # [R]
+            bias = e.astype(mx.float32) @ head_w.astype(mx.float32).T  # [V]
+            row = np.asarray(logits[i], dtype=np.float32) + np.asarray(bias, dtype=np.float32)
+            # temperature 0 (greedy draft) matches baseline generate default
+            nxt = int(np.argmax(row))
+            drafts.append(nxt)
+            cur = nxt
+        return drafts
+
+    def generate_spec(self, prompt_ids: list[int], max_new_tokens: int,
+                      temperature: float = 0.0) -> dict:
+        """Lossless greedy DSpark speculative decode (#29).
+
+        Draft block_size tokens; verify with one multi-token target forward;
+        on partial reject restore caches and re-forward accepted prefix +
+        the target's correction token. Acceptance check: drafts[j] against
+        argmax(v_logits[j]) (prediction for position L+1+j after chunk j).
+        """
+        ids = list(prompt_ids)
+        times: dict = {}
+        stats = {
+            "proposed": 0, "accepted": 0, "steps": 0,
+            "draft_s": 0.0, "verify_s": 0.0, "target_s": 0.0,
+            "rollbacks": 0, "full_accepts": 0,
+        }
+        start = time.perf_counter()
+        logits, main_hidden = self.forward(ids, 0, want_main=True)
+        mx.eval(logits, main_hidden)
+        times["prefill_s"] = time.perf_counter() - start
+        self.mtp_seed(main_hidden)
+
+        out_tokens: list[int] = []
+        nxt = self._sample(np.asarray(logits[-1], dtype=np.float32), temperature)
+        out_tokens.append(nxt)
+        ids.append(nxt)
+        if self._trace is not None:
+            self._trace.token(nxt)
+        tt = time.perf_counter()
+        logits, main_hidden = self.forward([nxt], len(ids) - 1, want_main=True)
+        mx.eval(logits, main_hidden)
+        stats["target_s"] += time.perf_counter() - tt
+        decode_s = 0.0
+
+        while len(out_tokens) < max_new_tokens:
+            step_t0 = time.perf_counter()
+            pos = len(ids) - 1
+            t0 = self._sample(np.asarray(logits[-1], dtype=np.float32), temperature)
+            td = time.perf_counter()
+            drafts = self.mtp_draft(main_hidden, [t0], start_pos=pos)
+            stats["draft_s"] += time.perf_counter() - td
+            stats["proposed"] += len(drafts)
+            if not drafts:
+                out_tokens.append(t0)
+                ids.append(t0)
+                if self._trace is not None:
+                    self._trace.token(t0)
+                tt = time.perf_counter()
+                logits, main_hidden = self.forward([t0], len(ids) - 1, want_main=True)
+                mx.eval(logits, main_hidden)
+                stats["target_s"] += time.perf_counter() - tt
+                stats["steps"] += 1
+                decode_s += time.perf_counter() - step_t0
+                continue
+
+            # Verify [t0] + drafts as one multi-token target forward at pos+1.
+            # v_logits[j] predicts position (pos+1)+(j+1) after consuming chunk j;
+            # drafts[j] occupies position pos+1+j and must match argmax(v_logits[j])
+            # only for j>=1 relative to after t0... drafts[j] is at index j+1 in chunks,
+            # prediction after chunks[j] (index j) is v_logits[j] for position pos+1+j+?:
+            # chunk positions: [t0, d0, d1, ...] at L=pos+1.
+            # v_logits[0] = pred for L+1 after t0  -> should equal d0
+            # v_logits[j] = pred for L+1+j after chunks[j]  -> should equal drafts[j]
+            chunks = [t0] + drafts
+            L = pos + 1
+            snap = self._snapshot_caches()
+            tv = time.perf_counter()
+            v_logits, v_main = self.forward(chunks, L, want_main=True)
+            mx.eval(v_logits, v_main)
+            stats["verify_s"] += time.perf_counter() - tv
+
+            # t0 is the target's own sample — always accepted.
+            # drafts[0]=d0 must match v_logits[0], drafts[j] match v_logits[j].
+            matched_drafts = 0
+            for j, d in enumerate(drafts):
+                pred = int(np.argmax(np.asarray(v_logits[j], dtype=np.float32)))
+                if d == pred:
+                    matched_drafts += 1
+                else:
+                    break
+            stats["accepted"] += matched_drafts
+            accepted = 1 + matched_drafts  # including t0
+
+            if accepted == len(chunks):
+                stats["full_accepts"] += 1
+                out_tokens.extend(chunks)
+                ids.extend(chunks)
+                if len(out_tokens) > max_new_tokens:
+                    out_tokens = out_tokens[:max_new_tokens]
+                    ids = ids[:len(prompt_ids) + max_new_tokens]
+                if self._trace is not None:
+                    for t in out_tokens[-len(chunks):]:
+                        self._trace.token(t)
+                main_hidden = v_main[-1:]
+                logits = v_logits
+            else:
+                # First bad token is drafts[matched_drafts] at position L+matched_drafts
+                # (= position of chunks[accepted]). Prediction after chunks[accepted-1]
+                # is v_logits[accepted-1].
+                correction = int(np.argmax(
+                    np.asarray(v_logits[accepted - 1], dtype=np.float32)))
+                commit = chunks[:accepted] + [correction]
+                self._restore_caches(snap)
+                stats["rollbacks"] += 1
+                tt = time.perf_counter()
+                logits, main_hidden = self.forward(commit, L, want_main=True)
+                mx.eval(logits, main_hidden)
+                stats["target_s"] += time.perf_counter() - tt
+                out_tokens.extend(commit)
+                ids.extend(commit)
+                if self._trace is not None:
+                    for t in commit:
+                        self._trace.token(t)
+                if len(out_tokens) > max_new_tokens:
+                    out_tokens = out_tokens[:max_new_tokens]
+                    ids = ids[:len(prompt_ids) + max_new_tokens]
+
+            stats["steps"] += 1
+            decode_s += time.perf_counter() - step_t0
+
+        times["decode_s"] = decode_s
+        times["tokens"] = len(out_tokens)
+        times["tok_s"] = len(out_tokens) / decode_s if decode_s else 0.0
+        acc = stats["accepted"]
+        prop = stats["proposed"]
+        stats["acceptance"] = acc / prop if prop else 0.0
+        return {"tokens": out_tokens, "timings": times, "spec": stats}
 
     def generate(self, prompt_ids: list[int], max_new_tokens: int,
                  temperature: float = 0.0) -> dict:

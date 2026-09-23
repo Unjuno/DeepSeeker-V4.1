@@ -1,0 +1,70 @@
+{
+ "prompt": "Say hello.",
+ "prompt_tokens": 7,
+ "max_tokens": 8,
+ "block_size": 5,
+ "n_mtp_layers": 3,
+ "config": {
+  "dspark_target_layer_ids": [
+   37,
+   38,
+   39
+  ],
+  "dspark_n_activated_experts": 3,
+  "dspark_noise_token_id": 128799,
+  "expert_cap": 64
+ },
+ "baseline": {
+  "tokens": [
+   43,
+   4571,
+   2887,
+   304,
+   2507,
+   1613,
+   539,
+   43
+  ],
+  "text": "I'm going to say... \nI",
+  "timings": {
+   "prefill_s": 138.36534987500636,
+   "decode_s": 206.9299122080556,
+   "tokens": 8,
+   "tok_s": 0.03866043296803064
+  },
+  "wall_s": 345.34871954197297
+ },
+ "spec": {
+  "tokens": [
+   43,
+   4571,
+   2887,
+   304,
+   2507,
+   1613,
+   539,
+   43
+  ],
+  "text": "I'm going to say... \nI",
+  "timings": {
+   "prefill_s": 129.76830516697373,
+   "decode_s": 642.9145067500067,
+   "tokens": 8,
+   "tok_s": 0.012443334091869776
+  },
+  "spec": {
+   "proposed": 20,
+   "accepted": 1,
+   "steps": 4,
+   "draft_s": 11.338585125107784,
+   "verify_s": 429.25350658391835,
+   "target_s": 228.00338095903862,
+   "rollbacks": 4,
+   "full_accepts": 0,
+   "acceptance": 0.05
+  },
+  "wall_s": 798.4710727920174
+ },
+ "tok_s_ratio": 0.3218622539007648,
+ "lossless_match": true
+}
