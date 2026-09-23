@@ -84,6 +84,12 @@ def main() -> int:
                   f"prefill={base['timings']['prefill_s']:.1f}s "
                   f"decode={base['timings']['decode_s']:.1f}s "
                   f"tok/s={base['timings']['tok_s']:.4f}", flush=True)
+            t = base["timings"]
+            if "expert_hit_rate" in t:
+                print(f"BASE_CACHE loads={t['expert_loads']} "
+                      f"hits={t['expert_cache_hits']} "
+                      f"evict={t['expert_evictions']} "
+                      f"hit_rate={t['expert_hit_rate']:.3f}", flush=True)
             print(f"BASE_TEXT: {base_text!r}", flush=True)
             # Fresh caches for fair spec comparison? Keep same runner (cache warm).
             # Reset KV by reconstructing would reload 16GiB — instead note warm.

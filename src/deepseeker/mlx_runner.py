@@ -15,6 +15,7 @@ no distributed, no vision. DSpark/MTP draft path implemented (#29).
 from __future__ import annotations
 
 import time
+from concurrent.futures import Future
 from pathlib import Path
 
 import mlx.core as mx
@@ -64,6 +65,9 @@ class Runner:
         self.expert_loads = 0
         self.expert_cache_hits = 0
         self.expert_evictions = 0
+        # Last-step routing per layer: temporal locality for decode prefetch.
+        self._last_route: dict[tuple[str, int], list[int]] = {}
+        self._prefetch_pool = None
         try:
             # Dense ~15GiB + up to ~27GiB experts + activations; keep headroom
             # under 64GiB for KV/Engram/temp.
@@ -76,6 +80,9 @@ class Runner:
         return self._dense[name]
 
     def shutdown(self) -> None:
+        if self._prefetch_pool is not None:
+            self._prefetch_pool.shutdown(wait=False)
+            self._prefetch_pool = None
         self._engram_cache.shutdown()
 
     # -- embedding / head ------------------------------------------------
@@ -177,6 +184,17 @@ class Runner:
         gate_b = self._dense[f"{base}.ffn.gate.bias"]
 
         def hook(layer_id, idx, w):
+            # Temporal prefetch is for decode (S=1). Prefill unions across
+            # tokens can exceed the cache and thrash LRU — skip those.
+            n_tok = len(idx)
+            if n_tok == 1:
+                self._last_route[(ns, layer_id)] = sorted(
+                    {int(e) for e in idx[0]})
+            elif (ns, layer_id) in self._last_route:
+                # Prefill: don't grow the working set; keep prior decode map
+                # only if we are not about to use it (forward will skip
+                # prefetch when last_route is stale for start_pos==0).
+                pass
             # Backbone schema only records layers [0, n_layers); skip MTP drafts.
             if self._trace is not None and ns == "layers":
                 self._trace.router(layer_id, token_start, idx, w)
@@ -187,6 +205,45 @@ class Runner:
         return F.moe_layer(x, gate_w, gate_b, self._expert_fn(layer, ns),
                            self._shared_fn(layer, ns), top_k, 10.0, hook, layer,
                            prefetch_fn=prefetch)
+
+    def prefetch_last_routes(self) -> Future | None:
+        """Async warm of expert cache from previous step's routing (decode).
+
+        Returns a Future so the caller can overlap loads with embed/attention.
+        Only misses are loaded; LRU already holds the previous working set.
+        """
+        if not self._last_route:
+            return None
+        specs: list[tuple[int, int, str]] = []
+        for (ns, layer), experts in self._last_route.items():
+            for e in experts:
+                key = (ns, layer, e)
+                if key not in self._expert_cache:
+                    specs.append((layer, e, ns))
+        if not specs:
+            return None
+        if self._prefetch_pool is None:
+            from concurrent.futures import ThreadPoolExecutor
+            self._prefetch_pool = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="expert-warm")
+
+        def _work():
+            loaded = self._expert_loader.load_experts_parallel(
+                specs, workers=self._expert_prefetch_workers)
+            for (prefix, ly, ex), d in loaded.items():
+                key = (prefix, ly, ex)
+                if key in self._expert_cache:
+                    continue
+                self._expert_cache[key] = d
+                self._expert_lru.append(key)
+                self.expert_loads += 1
+            while len(self._expert_cache) > self._expert_cache_cap:
+                old = self._expert_lru.pop(0)
+                if old in self._expert_cache:
+                    del self._expert_cache[old]
+                    self.expert_evictions += 1
+
+        return self._prefetch_pool.submit(_work)
 
     # -- rotary -------------------------------------------------------------
     # Per-layer tables (reference Attention.__init__): layers WITH
@@ -730,7 +787,14 @@ class Runner:
         """
         cfg = self._config
         hc = cfg["hc_mult"]
-        h = self.embed(token_ids)  # [S, dim]
+        warm_future = None
+        if start_pos == 0:
+            # New sequence: drop temporal map so we don't prefetch stale keys.
+            self._last_route.clear()
+        elif self._last_route:
+            # Decode: kick async warm; join before MoE needs the keys.
+            warm_future = self.prefetch_last_routes()
+        h = self.embed(token_ids)
         h = mx.broadcast_to(h[:, None, :], (h.shape[0], hc, h.shape[1]))
         pre_mix = mx.zeros((h.shape[0], hc))
         pre_mix = pre_mix.at[:, 0].add(1.0)  # identity pre-mix, not uniform
@@ -739,6 +803,8 @@ class Runner:
         if cfg.get("engram_layer_ids"):
             hashes = self._engram_hash_ids(token_ids, start_pos)
         targets = set(cfg.get("dspark_target_layer_ids") or ())
+        if warm_future is not None:
+            warm_future.result()  # block only once, after embed/engram setup
         main_parts: list[mx.array] = []
         for layer in range(cfg["n_layers"]):
             if hashes is not None and layer in cfg["engram_layer_ids"]:
@@ -1071,4 +1137,10 @@ class Runner:
         times["decode_s"] = decode_s
         times["tokens"] = len(out_tokens)
         times["tok_s"] = len(out_tokens) / decode_s if decode_s else 0.0
+        times["expert_loads"] = self.expert_loads
+        times["expert_cache_hits"] = self.expert_cache_hits
+        times["expert_evictions"] = self.expert_evictions
+        total = self.expert_loads + self.expert_cache_hits
+        times["expert_hit_rate"] = (
+            self.expert_cache_hits / total if total else 0.0)
         return {"tokens": out_tokens, "timings": times}
