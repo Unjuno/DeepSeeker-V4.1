@@ -93,8 +93,15 @@ class Runner:
     def head_logits(self, h: mx.array) -> mx.array:
         cfg = self._config
         normed = F.rmsnorm(h, self._dense["norm.weight"], cfg.get("norm_eps", 1e-20))
-        head_w = self._dense["head.weight"]
-        return normed.astype(mx.float32) @ head_w.astype(mx.float32).T
+        wt = getattr(self, "_head_wt", None)
+        if wt is None:
+            # 1.26GiB bf16 -> f32.T once (~2.5GiB); avoids ~700ms/token cast.
+            wt = self._dense["head.weight"].astype(mx.float32).T
+            mx.eval(wt)
+            self._head_wt = wt
+            del self._dense["head.weight"]  # drop bf16 copy
+            mx.clear_cache()
+        return normed.astype(mx.float32) @ wt
 
     # -- MoE --------------------------------------------------------------
     def shrink_expert_cache(self, new_cap: int) -> int:
@@ -964,7 +971,15 @@ class Runner:
         x = F.hc_pre(h, pre_mix)  # [B, dim]
         x = F.rmsnorm(x, self._dense["mtp.2.norm.weight"],
                       cfg.get("norm_eps", 1e-20))
-        logits = x.astype(mx.float32) @ self._dense["head.weight"].astype(mx.float32).T
+        wt = getattr(self, "_head_wt", None)
+        if wt is None:
+            wt = self._dense["head.weight"].astype(mx.float32).T
+            mx.eval(wt)
+            self._head_wt = wt
+            if "head.weight" in self._dense:
+                del self._dense["head.weight"]
+            mx.clear_cache()
+        logits = x.astype(mx.float32) @ wt
         emb_w = self._dense["mtp.2.markov_head.embed.weight"]  # [V, R]
         head_w = self._dense["mtp.2.markov_head.head.weight"]  # [V, R]
         out0 = int(input_ids[0])
