@@ -177,10 +177,12 @@ class Runner:
         w2 = self._dense[prefix + ".w2.weight"]
 
         def run(x: mx.array) -> mx.array:
-            g = mx.minimum(x.astype(mx.float32) @ w1.astype(mx.float32).T, 10.0)
-            u = mx.clip(x.astype(mx.float32) @ w3.astype(mx.float32).T, -10.0, 10.0)
+            # f32 x @ bf16 W: mlx upcasts W, matches explicit f32 cast (maxdiff 0)
+            # and skips the 3x bf16->f32 materialization per token.
+            g = mx.minimum(x.astype(mx.float32) @ w1.T, 10.0)
+            u = mx.clip(x.astype(mx.float32) @ w3.T, -10.0, 10.0)
             h = (g / (1.0 + mx.exp(-g))) * u
-            return (h @ w2.astype(mx.float32).T).astype(x.dtype)
+            return (h @ w2.T).astype(x.dtype)
 
         return run
 
@@ -357,9 +359,9 @@ class Runner:
         head_dim = cfg["head_dim"]
         seqlen = x.shape[0]
         if ratio == 1:
-            kv = x.astype(mx.float32) @ self._dense[p + "compressor.wkv.weight"].astype(mx.float32).T \
+            kv = x.astype(mx.float32) @ self._dense[p + "compressor.wkv.weight"].T \
                 if p + "compressor.wkv.weight" in self._dense else \
-                x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+                x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
             norm_w = (self._dense[p + "compressor.norm.weight"]
                       if p + "compressor.norm.weight" in self._dense
                       else self._dense[p + "kv_norm.weight"])
@@ -367,7 +369,7 @@ class Runner:
         wkv = self._dense[p + "compressor.wkv.weight"]
         wgate = self._dense[p + "compressor.wgate.weight"]
         xf = x.astype(mx.float32)
-        kv, score = xf @ wkv.astype(mx.float32).T, xf @ wgate.astype(mx.float32).T
+        kv, score = xf @ wkv.T, xf @ wgate.T
         st = self._kv_state.get(layer)
         sc = self._score_state.get(layer)
         if st is None:

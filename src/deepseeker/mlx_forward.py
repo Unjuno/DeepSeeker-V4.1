@@ -72,14 +72,14 @@ def moe_layer(x: mx.array, gate_w: mx.array, gate_b: mx.array,
         rows = np.where(mask.any(axis=1))[0]
         cols = [int(np.where(mask[r])[0][0]) for r in rows]
         w1, w3, w2down = expert_fn(int(expert))
-        xr = x[mx.array(rows)]
-        g = xr.astype(mx.float32) @ w1.astype(mx.float32).T
-        u = xr.astype(mx.float32) @ w3.astype(mx.float32).T
+        xr = x[mx.array(rows)].astype(mx.float32)
+        g = xr @ w1.T
+        u = xr @ w3.T
         g = mx.minimum(g, limit)
         u = mx.clip(u, -limit, limit)
         h = (g / (1.0 + mx.exp(-g))) * u
         rw = mx.array(w_np[rows, cols], dtype=mx.float32).reshape(-1, 1)
-        out = out.at[mx.array(rows)].add((h * rw) @ w2down.astype(mx.float32).T)
+        out = out.at[mx.array(rows)].add((h * rw) @ w2down.T)
         del xr, g, u, h, rw
     if trace_hook is not None:
         trace_hook(layer_id, idx_np.tolist(), w_np.tolist())
