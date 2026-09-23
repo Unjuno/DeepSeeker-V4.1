@@ -117,52 +117,99 @@ class ExpertLoader:
         self._root = Path(model_root)
         by_name = {t["name"]: t for t in manifest.get("tensors", [])}
         self._by_name = by_name
+        self._metal_kernel = None
+        self._metal_lut = None
+
+    def _kernel(self):
+        if self._metal_kernel is None:
+            from deepseeker.metal_fp4 import _kernel_fn
+            self._metal_kernel, self._metal_lut = _kernel_fn()
+        return self._metal_kernel, self._metal_lut
 
     def _tensor(self, name: str) -> tuple[np.ndarray, tuple[int, ...]]:
         entry = self._by_name[name]
         data = read_bytes(self._root, entry["shard"], *entry["file_range"])
         return np.frombuffer(data, dtype=np.uint8).copy(), tuple(entry["shape"])
 
+    def _read_role(self, layer: int, expert: int, prefix: str, role: str):
+        base = f"{prefix}.{layer}.ffn.experts.{expert}.{role}" if prefix == "layers" \
+            else f"mtp.{layer}.ffn.experts.{expert}.{role}"
+        w = self._by_name[f"{base}.weight"]
+        s = self._by_name[f"{base}.scale"]
+        wdata = read_bytes(self._root, w["shard"], *w["file_range"])
+        sdata = read_bytes(self._root, s["shard"], *s["file_range"])
+        return role, wdata, sdata, tuple(w["shape"])
+
+    def _dequant_metal(self, wdata: bytes, sdata: bytes,
+                       rows: int, pair_cols: int) -> mx.array:
+        """fp4 bytes -> bf16 on GPU (Metal LUT kernel; ~10x numpy)."""
+        from deepseeker.metal_fp4 import decode_scales_u8m0
+
+        n = rows * pair_cols * 2
+        kernel, lut = self._kernel()
+        mp = mx.array(np.frombuffer(wdata, dtype=np.uint8))
+        scales = decode_scales_u8m0(sdata)
+        ms = mx.array(np.ascontiguousarray(scales, dtype=np.float32))
+        outs = kernel(
+            inputs=[mp, ms, lut],
+            output_shapes=[(n,)],
+            output_dtypes=[mx.float32],
+            grid=(n, 1, 1),
+            threadgroup=(min(n, 256), 1, 1),
+        )
+        return outs[0].reshape(rows, pair_cols * 2).astype(mx.bfloat16)
+
     def load_expert(self, layer: int, expert: int, prefix: str = "layers") -> dict[str, mx.array]:
         """Dequantized {w1, w2, w3} bf16 arrays with scales folded in.
 
         prefix='layers' for backbone experts; prefix='mtp' uses mtp.{layer}.ffn.
+        Parallel I/O for the three tensors, Metal dequant on GPU.
         """
-        out = {}
-        for role in ("w1", "w2", "w3"):
-            base = f"{prefix}.{layer}.ffn.experts.{expert}.{role}" if prefix == "layers" \
-                else f"mtp.{layer}.ffn.experts.{expert}.{role}"
-            w = self._by_name[f"{base}.weight"]
-            s = self._by_name[f"{base}.scale"]
-            wdata = read_bytes(self._root, w["shard"], *w["file_range"])
-            sdata = read_bytes(self._root, s["shard"], *s["file_range"])
-            rows, pair_cols = w["shape"]
-            vals = dequant_fp4_rowmajor(
-                np.frombuffer(wdata, dtype=np.uint8).copy(),
-                np.frombuffer(sdata, dtype=np.uint8).copy(),
-            ).reshape(rows, pair_cols * 2)
-            out[role] = mx.array(vals.astype(np.float32, copy=False)).astype(mx.bfloat16)
+        from concurrent.futures import ThreadPoolExecutor
+
+        roles = ("w1", "w2", "w3")
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            parts = list(pool.map(
+                lambda r: self._read_role(layer, expert, prefix, r), roles))
+        out: dict[str, mx.array] = {}
+        for role, wdata, sdata, (rows, pair_cols) in parts:
+            out[role] = self._dequant_metal(wdata, sdata, rows, pair_cols)
         mx.eval(list(out.values()))
         return out
 
     def load_experts_parallel(self, specs: list[tuple[int, int, str]], workers: int = 8) -> dict[tuple[str, int, int], dict[str, mx.array]]:
-        """Load many experts concurrently (I/O + NumPy release GIL in pread/exp2).
+        """Load many experts: batch I/O then sequential Metal dequant.
 
         specs: list of (layer, expert, prefix). Returns key=(prefix, layer, expert) -> dict.
+        Metal kernels serialize on the GPU, so overlap disk reads across
+        experts first, then dequant one expert at a time.
         """
         if not specs:
             return {}
         from concurrent.futures import ThreadPoolExecutor
 
-        def _one(spec: tuple[int, int, str]):
+        def _read(spec: tuple[int, int, str]):
             layer, expert, prefix = spec
-            return (prefix, layer, expert), self.load_expert(layer, expert, prefix=prefix)
+            parts = [
+                self._read_role(layer, expert, prefix, r)
+                for r in ("w1", "w2", "w3")
+            ]
+            return (prefix, layer, expert), parts
 
         workers = max(1, min(workers, len(specs)))
         if workers == 1:
-            return dict(_one(s) for s in specs)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return dict(pool.map(_one, specs))
+            reads = [_read(s) for s in specs]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                reads = list(pool.map(_read, specs))
+        out: dict[tuple[str, int, int], dict[str, mx.array]] = {}
+        for key, parts in reads:
+            expert_out: dict[str, mx.array] = {}
+            for role, wdata, sdata, (rows, pair_cols) in parts:
+                expert_out[role] = self._dequant_metal(wdata, sdata, rows, pair_cols)
+            out[key] = expert_out
+            mx.eval(list(expert_out.values()))
+        return out
 
 
 class DenseLoader:
