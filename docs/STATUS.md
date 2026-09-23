@@ -22,7 +22,7 @@ Upstream pin: dba1be0a40aa45a94ad051997016db3960a90277 (all issues).
 | #5 | Memory budget planner | DONE |
 | #6 | Checkpoint manager | DONE — 48/48 verified |
 | #7 | Reference verification | DONE — static/blocking checks passed; full generate still blocked on runtime portability |
-| #16 | First inference baseline | OPEN — reference runtime not yet runnable on M1 Max |
+| #16 | First inference baseline | DONE — MLX path 0.0387 accepted tok/s; reference FAIL (CUDA/tilelang) |
 
 ## Offline analysis — implemented
 
@@ -131,3 +131,24 @@ independent exact-equivalence proof.
 - #41: SSD policy closed (enforced + monitored).
 - Blocked on runnable inference: #20, #21, #22, #30, #36, #37, #38, #39.
 - Critical path: MLX-native runner -> #20 -> gates -> live -> release.
+
+
+## Final end-to-end (Issue #39)
+
+- Baseline accepted decode: **0.0387 tok/s** (M1 Max, greedy, 8 tokens, `profiles/runs/mtp/base8.json`).
+- MTP speculative: lossless but **0.32× baseline** (acceptance 5%); not beneficial yet (`full8.json`).
+- Grouped MoE microbench: **1.11×** @8 tokens, **1.62×** @32 (random experts, maxdiff 1.56e-2 gate).
+- Startup autotune: `recommended.json` cap=960 slots; controller #37 unit-tested.
+- Multi-domain authoritative traces: en/code/reason/ja all schema-validated.
+- Sustained gate #38: 124 min monitor, stability PASS / throughput CONDITIONAL FAIL (expert I/O thrash at cap 64).
+- **400 accepted tok/s stretch target: NOT REACHED** (measured 0.039).
+- Golden quality harness: PASS / perturb FAIL as expected.
+
+Regression thresholds (initial):
+
+| metric | threshold |
+|---|---|
+| accepted tok/s (Say hello, 8 tok) | ≥ 0.030 (baseline 0.0387) |
+| golden equivalence | PASS |
+| trace schema validate | PASS all 4 domains |
+| sustained free% min | ≥ 30 |
