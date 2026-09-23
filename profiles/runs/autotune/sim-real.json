@@ -1,0 +1,191 @@
+[
+ {
+  "predictor": "persistence",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.17524509803921595,
+  "exact_set": 0.0,
+  "false_pos": 4.595588235294118,
+  "wasted_bytes": 86400000.0
+ },
+ {
+  "predictor": "persistence",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.17524509803921595,
+  "exact_set": 0.0,
+  "false_pos": 4.595588235294118,
+  "wasted_bytes": 86400000.0
+ },
+ {
+  "predictor": "persistence",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.17524509803921595,
+  "exact_set": 0.0,
+  "false_pos": 4.595588235294118,
+  "wasted_bytes": 86400000.0
+ },
+ {
+  "predictor": "lru",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.17524509803921595,
+  "exact_set": 0.0,
+  "false_pos": 4.595588235294118,
+  "wasted_bytes": 86400000.0
+ },
+ {
+  "predictor": "lru",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.28431372549019573,
+  "exact_set": 0.0,
+  "false_pos": 9.204411764705883,
+  "wasted_bytes": 173048832.0
+ },
+ {
+  "predictor": "lru",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.4061274509803918,
+  "exact_set": 0.0,
+  "false_pos": 17.725,
+  "wasted_bytes": 333241344.0
+ },
+ {
+  "predictor": "lfu",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.23088235294117665,
+  "exact_set": 0.0,
+  "false_pos": 4.261764705882353,
+  "wasted_bytes": 80123904.0
+ },
+ {
+  "predictor": "lfu",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.3169117647058828,
+  "exact_set": 0.0,
+  "false_pos": 9.008823529411766,
+  "wasted_bytes": 169371648.00000003
+ },
+ {
+  "predictor": "lfu",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.41299019607843124,
+  "exact_set": 0.0,
+  "false_pos": 17.683823529411764,
+  "wasted_bytes": 332467200.0
+ },
+ {
+  "predictor": "ema",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.22769607843137268,
+  "exact_set": 0.0,
+  "false_pos": 4.280882352941177,
+  "wasted_bytes": 80483328.0
+ },
+ {
+  "predictor": "ema",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.30759803921568674,
+  "exact_set": 0.0,
+  "false_pos": 9.064705882352941,
+  "wasted_bytes": 170422272.0
+ },
+ {
+  "predictor": "ema",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.41568627450980355,
+  "exact_set": 0.0,
+  "false_pos": 17.66764705882353,
+  "wasted_bytes": 332163072.0
+ },
+ {
+  "predictor": "token_transition",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.20465686274509812,
+  "exact_set": 0.0,
+  "false_pos": 3.5191176470588235,
+  "wasted_bytes": 66161664.0
+ },
+ {
+  "predictor": "token_transition",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.28750000000000003,
+  "exact_set": 0.0,
+  "false_pos": 7.0926470588235295,
+  "wasted_bytes": 133346304.0
+ },
+ {
+  "predictor": "token_transition",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.3615196078431377,
+  "exact_set": 0.0,
+  "false_pos": 12.589705882352941,
+  "wasted_bytes": 236694528.0
+ },
+ {
+  "predictor": "layer_transition",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.24632352941176472,
+  "exact_set": 0.0014705882352941176,
+  "false_pos": 3.5161764705882352,
+  "wasted_bytes": 66106368.0
+ },
+ {
+  "predictor": "layer_transition",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.33161764705882363,
+  "exact_set": 0.0014705882352941176,
+  "false_pos": 7.317647058823529,
+  "wasted_bytes": 137576448.0
+ },
+ {
+  "predictor": "layer_transition",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.4009803921568624,
+  "exact_set": 0.0014705882352941176,
+  "false_pos": 13.345588235294118,
+  "wasted_bytes": 250905600.0
+ },
+ {
+  "predictor": "bundle",
+  "budget": 6,
+  "records": 680,
+  "recall_at_k": 0.19264705882352967,
+  "exact_set": 0.0,
+  "false_pos": 4.491176470588235,
+  "wasted_bytes": 84436992.0
+ },
+ {
+  "predictor": "bundle",
+  "budget": 12,
+  "records": 680,
+  "recall_at_k": 0.2767156862745102,
+  "exact_set": 0.0,
+  "false_pos": 9.25,
+  "wasted_bytes": 173905920.0
+ },
+ {
+  "predictor": "bundle",
+  "budget": 24,
+  "records": 680,
+  "recall_at_k": 0.3568627450980393,
+  "exact_set": 0.0,
+  "false_pos": 14.327941176470588,
+  "wasted_bytes": 269374464.0
+ }
+]

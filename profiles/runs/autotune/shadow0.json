@@ -1,0 +1,72 @@
+[
+ {
+  "predictor": "persistence",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.17524509803921565,
+  "mean_fp_per_token": 183.8235294117647,
+  "mean_waste_per_token": 3456000000.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "lru",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.28431372549019607,
+  "mean_fp_per_token": 368.1764705882353,
+  "mean_waste_per_token": 6921953280.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "lfu",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.31691176470588234,
+  "mean_fp_per_token": 360.3529411764706,
+  "mean_waste_per_token": 6774865920.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "ema",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.3075980392156863,
+  "mean_fp_per_token": 362.5882352941176,
+  "mean_waste_per_token": 6816890880.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "token_transition",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.2875,
+  "mean_fp_per_token": 283.70588235294116,
+  "mean_waste_per_token": 5333852160.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "layer_transition",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.3316176470588235,
+  "mean_fp_per_token": 292.70588235294116,
+  "mean_waste_per_token": 5503057920.0,
+  "switch_at": null
+ },
+ {
+  "predictor": "bundle",
+  "budget": 12,
+  "horizon": 0,
+  "tokens": 17,
+  "mean_recall": 0.2767156862745098,
+  "mean_fp_per_token": 370.0,
+  "mean_waste_per_token": 6956236800.0,
+  "switch_at": null
+ }
+]

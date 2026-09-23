@@ -1,0 +1,22 @@
+{
+ "schema": "deepseeker.autotune/v1",
+ "target_recall": 0.7,
+ "config": {
+  "resident_slots_per_layer": 24,
+  "predictor": "ema",
+  "budget": 24,
+  "horizon": 1,
+  "prefetch_enabled": false,
+  "cpu_workers": 8,
+  "io_concurrency": 6
+ },
+ "rationale": {
+  "resident_slots_per_layer": "(47244640256 - 315043840 dense - 4294967296 os) / 40 layers / 18800640 B = 56; capped by sim budget 24",
+  "predictor": "target recall 0.7 unreachable; best available (0.416)",
+  "budget": "target recall 0.7 unreachable; best available (0.416)",
+  "horizon": "token-ahead recall 0.317 within 10% of 0.332",
+  "prefetch_enabled": "no shadow switch-on verdict; stay shadow-only",
+  "cpu_workers": "one worker per performance core",
+  "io_concurrency": "measured Issue #6 download sweet spot; revisit in P5"
+ }
+}
