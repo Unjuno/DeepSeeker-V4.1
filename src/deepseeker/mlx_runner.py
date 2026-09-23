@@ -29,12 +29,14 @@ class Runner:
     """Owns weights, caches, and streaming loaders for one session."""
 
     def __init__(self, model_root: Path | str, manifest: dict, config: dict,
-                 trace_hook=None, expert_cache_cap: int = 64) -> None:
+                 trace_hook=None, expert_cache_cap: int = 256,
+                 expert_prefetch_workers: int = 8) -> None:
         self._root = Path(model_root)
         self._manifest = manifest
         self._config = config
         self._trace = trace_hook
         self._expert_loader = ExpertLoader(model_root, manifest)
+        self._expert_prefetch_workers = expert_prefetch_workers
         print("loading dense weights...", flush=True)
         self._dense = DenseLoader(model_root, manifest).load_all()
         print(f"dense resident: {sum(a.nbytes for a in self._dense.values()) / 2**30:.1f} GiB",
@@ -56,13 +58,17 @@ class Runner:
         self._expert_cache: dict[tuple[str, int, int], dict] = {}
         self._expert_lru: list[tuple[str, int, int]] = []
         self._mtp_window: dict[int, mx.array] = {}
-        self._expert_cache_cap = expert_cache_cap  # experts; ~70MB bf16 each
+        # 40 layers x 6 activated experts = 240-key working set; cap must
+        # cover it or LRU thrashes to 0% hits (measured base8: 0 hits @ cap64).
+        self._expert_cache_cap = max(240, int(expert_cache_cap))
         self.expert_loads = 0
         self.expert_cache_hits = 0
         self.expert_evictions = 0
         try:
-            mx.set_cache_limit(6 * 1024**3)
-            mx.set_memory_limit(48 * 1024**3)
+            # Dense ~15GiB + up to ~27GiB experts + activations; keep headroom
+            # under 64GiB for KV/Engram/temp.
+            mx.set_cache_limit(8 * 1024**3)
+            mx.set_memory_limit(52 * 1024**3)
         except (RuntimeError, AttributeError):
             pass  # non-Metal backends ignore memory governance
 
@@ -121,6 +127,32 @@ class Runner:
             return d["w1"], d["w3"], d["w2"]
         return fetch
 
+    def prefetch_experts(self, layer: int, experts, ns: str = "layers") -> None:
+        """Warm the expert cache for one layer's activated experts in parallel."""
+        if not experts:
+            return
+        missing = []
+        for e in experts:
+            key = (ns, layer, int(e))
+            if key not in self._expert_cache:
+                missing.append((layer, int(e), ns))
+        if not missing:
+            return
+        loaded = self._expert_loader.load_experts_parallel(
+            missing, workers=self._expert_prefetch_workers)
+        for (prefix, ly, ex), d in loaded.items():
+            key = (prefix, ly, ex)
+            if key in self._expert_cache:
+                continue
+            self._expert_cache[key] = d
+            self._expert_lru.append(key)
+            self.expert_loads += 1
+        while len(self._expert_cache) > self._expert_cache_cap:
+            old = self._expert_lru.pop(0)
+            if old in self._expert_cache:
+                del self._expert_cache[old]
+                self.expert_evictions += 1
+
     def _shared_fn(self, layer: int, ns: str = "layers"):
         if ns == "mtp":
             prefix = f"mtp.{layer}.ffn.shared_experts"
@@ -149,8 +181,12 @@ class Runner:
             if self._trace is not None and ns == "layers":
                 self._trace.router(layer_id, token_start, idx, w)
 
+        def prefetch(layer_id, experts):
+            self.prefetch_experts(layer_id, experts, ns=ns)
+
         return F.moe_layer(x, gate_w, gate_b, self._expert_fn(layer, ns),
-                           self._shared_fn(layer, ns), top_k, 10.0, hook, layer)
+                           self._shared_fn(layer, ns), top_k, 10.0, hook, layer,
+                           prefetch_fn=prefetch)
 
     # -- rotary -------------------------------------------------------------
     # Per-layer tables (reference Attention.__init__): layers WITH

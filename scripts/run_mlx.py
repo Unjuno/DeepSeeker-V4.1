@@ -78,10 +78,10 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=10)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--expert-cap", type=int, default=None,
-                        help="dequantized expert cache cap (default 64)")
+                        help="dequantized expert cache cap (default 256; min 240)")
     parser.add_argument("--tune", type=Path, default=None,
                         help="recommended.json from autotune.py; sets cap "
-                             "= resident_slots_per_layer x 40")
+                             "from resident slots (bf16-corrected)")
     parser.add_argument("--trace-out", type=Path, default=None)
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
@@ -96,12 +96,24 @@ def main() -> int:
 
     request_id = f"mlx-{int(time.time())}"
     sink = TraceSink(request_id)
-    expert_cap = args.expert_cap or 64
+    expert_cap = args.expert_cap or 256
     if args.tune:
         tune = load_json(args.tune)
-        expert_cap = int(tune["config"]["resident_slots_per_layer"]) * 40
+        # recommended.json sizes slots with encoded fp4 (~18.8MB); the cache
+        # stores bf16 (~70.8MB). Convert before applying, then clamp to the
+        # safe bf16 working-set range for 64GB (min 240, max ~400).
+        fp4_bytes = 18_800_640
+        bf16_bytes = 5120 * 2304 * 3 * 2
+        slots = int(tune["config"]["resident_slots_per_layer"])
+        raw_cap = slots * 40
+        # If slots were computed in fp4 units, scale down by size ratio when
+        # the product would exceed bf16 budget (~27GiB for 400 experts).
+        if raw_cap * bf16_bytes > 30 * 1024**3:
+            raw_cap = int(raw_cap * fp4_bytes / bf16_bytes)
+        expert_cap = max(240, min(raw_cap, 400))
         print(f"tune: expert_cap={expert_cap} "
-              f"(predictor={tune['config']['predictor']})", flush=True)
+              f"(raw={slots}x40={slots * 40}, predictor={tune['config']['predictor']})",
+              flush=True)
     runner = Runner(model_root, manifest, config, trace_hook=sink,
                     expert_cache_cap=expert_cap)
     try:

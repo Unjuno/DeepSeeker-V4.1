@@ -52,18 +52,22 @@ def route_topk(scores: mx.array, bias: mx.array, top_k: int,
 
 def moe_layer(x: mx.array, gate_w: mx.array, gate_b: mx.array,
               expert_fn, shared_fn, top_k: int = 6, limit: float = 10.0,
-              trace_hook=None, layer_id: int = 0) -> mx.array:
+              trace_hook=None, layer_id: int = 0, prefetch_fn=None) -> mx.array:
     """MoE: route (exact), per-expert grouped eval, shared expert add.
 
     expert_fn(expert) -> (w1, w3, w2) bf16 arrays (streamed).
     trace_hook(layer, indices, weights) records ground truth (#20).
+    prefetch_fn(layer, unique_experts) warms cache in parallel before eval.
     """
     scores = sqrtsoftplus_scores(x, gate_w)
     weights, indices = route_topk(scores, gate_b, top_k)
     out = mx.zeros_like(x, dtype=mx.float32)
     idx_np = np.asarray(indices, dtype=np.int64)
     w_np = np.asarray(weights, dtype=np.float32)
-    for expert in np.unique(idx_np):
+    unique = np.unique(idx_np)
+    if prefetch_fn is not None:
+        prefetch_fn(layer_id, [int(e) for e in unique])
+    for expert in unique:
         mask = idx_np == expert
         rows = np.where(mask.any(axis=1))[0]
         cols = [int(np.where(mask[r])[0][0]) for r in rows]

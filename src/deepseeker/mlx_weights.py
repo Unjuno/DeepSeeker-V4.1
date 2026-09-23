@@ -76,14 +76,24 @@ def dequant_fp8_block(packed: np.ndarray, scales: np.ndarray) -> np.ndarray:
 
 
 def dequant_fp4_rowmajor(packed: np.ndarray, scales: np.ndarray) -> np.ndarray:
-    """Flat fp4 pairs (low nibble first) + per-32 ue8m0 scales -> float32."""
+    """Flat fp4 pairs (low nibble first) + per-32 ue8m0 scales -> float32.
+
+    Block multiply without materializing a full np.repeat scale vector.
+    """
     n = packed.size * 2
-    assert scales.size == (n + 31) // 32, (packed.size, scales.size)
-    raw = packed.astype(np.int64)
+    n_scales = (n + 31) // 32
+    assert scales.size == n_scales, (packed.size, scales.size, n)
+    raw = packed.astype(np.int32, copy=False)
     vals = np.empty(n, dtype=np.float32)
     vals[0::2] = FP4_TABLE[raw & 0x0F]
     vals[1::2] = FP4_TABLE[(raw >> 4) & 0x0F]
-    return vals * np.repeat(decode_u8m0(scales), 32)[:n]
+    gain = decode_u8m0(scales)
+    # Fold scales per 32-element block without a full repeat vector.
+    n_blocks = n // 32
+    vals[: n_blocks * 32] *= np.repeat(gain[:n_blocks], 32)
+    if n_blocks * 32 < n:
+        vals[n_blocks * 32:] *= gain[n_blocks]
+    return vals
 
 
 def read_bytes(model_root: Path, shard: str, start: int, end: int) -> bytes:
@@ -131,9 +141,28 @@ class ExpertLoader:
                 np.frombuffer(wdata, dtype=np.uint8).copy(),
                 np.frombuffer(sdata, dtype=np.uint8).copy(),
             ).reshape(rows, pair_cols * 2)
-            out[role] = mx.array(vals).astype(mx.bfloat16)
+            out[role] = mx.array(vals.astype(np.float32, copy=False)).astype(mx.bfloat16)
         mx.eval(list(out.values()))
         return out
+
+    def load_experts_parallel(self, specs: list[tuple[int, int, str]], workers: int = 8) -> dict[tuple[str, int, int], dict[str, mx.array]]:
+        """Load many experts concurrently (I/O + NumPy release GIL in pread/exp2).
+
+        specs: list of (layer, expert, prefix). Returns key=(prefix, layer, expert) -> dict.
+        """
+        if not specs:
+            return {}
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _one(spec: tuple[int, int, str]):
+            layer, expert, prefix = spec
+            return (prefix, layer, expert), self.load_expert(layer, expert, prefix=prefix)
+
+        workers = max(1, min(workers, len(specs)))
+        if workers == 1:
+            return dict(_one(s) for s in specs)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return dict(pool.map(_one, specs))
 
 
 class DenseLoader:

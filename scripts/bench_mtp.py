@@ -32,7 +32,8 @@ def main() -> int:
     parser.add_argument("--prompt", type=str, default="Say hello.")
     parser.add_argument("--max-tokens", type=int, default=16)
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--expert-cap", type=int, default=64)
+    parser.add_argument("--expert-cap", type=int, default=256,
+                        help="expert cache cap; min 240 forced by working set")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="only run speculative path")
     parser.add_argument("--skip-spec", action="store_true",
