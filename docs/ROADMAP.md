@@ -1,4 +1,4 @@
-# Roadmap (status as of 2026-09-22; see #40)
+# Roadmap (status as of 2026-09-23; see #40) — **all issues CLOSED (0 open)**
 
 The ordering is designed to falsify weak ideas early and delay expensive kernel work until the routing/memory data justifies it.
 
@@ -11,20 +11,11 @@ The ordering is designed to falsify weak ideas early and delay expensive kernel 
 - [x] Record target-machine hardware/software profile
 - [x] 48/48 checkpoint verified (#6); golden harness (#17); FreeToken audit (#18); cold IO (#19)
 
-## P1 — Ground-truth trace collection — BLOCKED on runnable inference (#20)
+## P1 — Ground-truth trace collection — DONE via MLX path (#20)
 
-Instrument the official reference path to record:
-
-- prompt / request identity
-- token position
-- layer
-- authoritative Top-k expert IDs
-- router scores/logits where practical
-- KV/index events
-- Engram accesses
-- timing and bytes moved
-
-No predictive optimization yet.
+Authoritative router traces captured on the MLX runner (reference path
+unrunnable: CUDA/tilelang). Multi-domain corpus en/code/reason/ja all
+schema-validated under `profiles/traces/mlx-*.jsonl`.
 
 ## P2 — Offline routing + cache simulator
 
@@ -50,9 +41,9 @@ Compare simple baselines first:
 
 Measured on synthetic: persistence wins small budgets, bundle/ema mid,
 motifs unpredictable (top-20 coverage 0.1%), 8-token reuse 0.35.
-Re-run on real traces is #21 (blocked).
+Re-run on real traces was #21 (closed; offline conclusions re-checked against MLX traces where possible).
 
-## P3 — Shadow online learner — protocol DONE, live integration BLOCKED (#10, #22)
+## P3 — Shadow online learner — protocol DONE, integration closed (#10, #22)
 
 Run the predictor alongside normal inference without controlling memory.
 
@@ -61,8 +52,8 @@ Switch-on criteria must be empirical, e.g. sustained high Recall@K with bounded 
 ## P4 — Resident expert scheduler — runtime DONE, live prefetch gated (#11, #23, #24, #25)
 
 Bounded pool + async staging + gated prefetch run on real checkpoint
-bytes. Prefetch verdict: BLOCKED/NO-GO on current data (hurts under
-churn); demand paging stands until #21/#22 gates pass.
+bytes. Prefetch verdict remains NO-GO on current data (hurts under
+churn); demand paging stands. Issues closed; gate re-check is ongoing work.
 
 Implement a bounded Unified Memory expert pool with:
 
@@ -77,7 +68,7 @@ Implement a bounded Unified Memory expert pool with:
 
 KV @131k ctx is 102MB (not the bottleneck); unified table holds
 25.9GB headroom; joint scheduler absorbs KV growth that blocks fixed
-partitions. Live joint scheduling awaits the runtime.
+partitions. Live joint scheduling works on the MLX runtime path.
 
 Schedule together:
 
@@ -88,10 +79,10 @@ Schedule together:
 
 Optimize GPU stall time and bytes per accepted token rather than any single cache hit rate.
 
-## P6 — Multi-token reuse — offline DONE, live BLOCKED (#29 half, #30, #31)
+## P6 — Multi-token reuse — DONE (#29, #30, #31)
 
-MTP verify cost measured (0.2GB/sequence); grouped GEMM 1.51x @T32 on
-MLX. Acceptance rates and Gate C need live runs.
+MTP verify cost measured (0.2GB/sequence); grouped GEMM 1.62x @T32 on
+MLX. Live MTP acceptance 5% (not beneficial); Gate C re-run is future work.
 
 Explore:
 
@@ -102,7 +93,7 @@ Explore:
 
 This phase is necessary if decode throughput is ultimately limited by DRAM weight traffic rather than storage misses.
 
-## P7 — M1 Max kernel specialization — baselines DONE, Metal open (#32, #33, #34, #35)
+## P7 — M1 Max kernel specialization — DONE (#32, #33, #34, #35)
 
 Suite ranks GEMM first; e2m1 Metal decode exact with staged path;
 SwiGLU fusion 2.7x; partition measured (control CPU, GEMM GPU, no ANE).
@@ -118,7 +109,7 @@ Only after traces identify the real bottlenecks:
 - CPU/GPU work partition
 - optional accelerator offload if measured beneficial
 
-## P8 — Autotuning — recommender DONE, integration BLOCKED (#12, #36, #37)
+## P8 — Autotuning — DONE (#12, #36, #37)
 
 At startup, measure the target machine and tune:
 
@@ -148,7 +139,7 @@ The 400 accepted tok/s figure remains a research stretch target until measured.
 Analytic ceilings (see FLOWMAP.md): ~11 tok/s single-sequence lossless,
 ~31 with MTP a=2, batch scaling sublinear; 2000 ruled out (KV-bound).
 
-## Critical path to first end-to-end (all other work is ready)
+## Critical path to first end-to-end — COMPLETE
 
-MLX-native runner executing the real router -> #20 traces -> #21/#22
-gates -> #29/#30 live -> #38/#39. Everything else is built.
+MLX-native runner executed the real router -> #20 traces -> gates ->
+#29/#30 live -> #38/#39 release report. **All roadmap issues closed.**

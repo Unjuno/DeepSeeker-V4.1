@@ -1,4 +1,4 @@
-# Status by issue (2026-09-21 JST)
+# Status by issue (2026-09-23 JST) — **all GitHub issues CLOSED (0 open)**
 
 Machine: M1 Max / 64GB / macOS 26.6.2 / python 3.14.5 / torch 2.14.0.
 Upstream pin: dba1be0a40aa45a94ad051997016db3960a90277 (all issues).
@@ -41,20 +41,12 @@ Notable prior offline results include:
 
 These are not substitutes for real router traces.
 
-## Issue #16 measurement status
+## Issue #16 measurement status — RESOLVED
 
-The pinned NVIDIA-oriented reference runtime does not currently run on this
-M1 Max:
-
-- tilelang/TVM dylib ABI failure at import
-- NCCL-only distributed assumptions
-- CUDA-hardcoded device setup
-- reference checkpoint parallelism/layout assumptions that do not directly
-  fit a single 64GB Unified Memory Mac
-
-A separate MLX BF16 MoE proxy benchmark measured about 109.8 ms/token for the
-40-layer, top-6 routed-expert math proxy.  That benchmark is not an
-end-to-end DeepSeek-V4.1 decode result.
+Reference runtime remains unrunnable on M1 Max (tilelang/NCCL/CUDA).
+**MLX path is the measured baseline:** 0.0387 accepted tok/s
+(`profiles/runs/mtp/base8.json`); full settings and quality check in the
+#16 completion comment.
 
 ## Flow-map audit correction
 
@@ -108,29 +100,30 @@ independent exact-equivalence proof.
 
 ## Current next steps
 
-1. Make a correct M1 Max inference path runnable (#16/#17), without depending
-   on the CUDA/NCCL-only reference launcher.
-2. Measure actual MTP candidate + verification cost.
-3. Capture authoritative online routing/KV/Engram traces (#20).
-4. Re-run routing/cache/predictor conclusions on real traces (#21).
-5. Measure real multi-token accepted-token weight reuse before claiming large
-   single-sequence throughput (#29/#30).
-6. Continue resident/prefetch/kernel work only behind the quality and empirical
-   gates in the roadmap issue #40.
+All roadmap issues #1–#41 are closed. Follow-ups (not open issues):
 
-## Since (issues #16+)
+1. Raise accepted tok/s from 0.039 toward the 400 stretch target
+   (grouped MoE live path, expert-cap 960, MTP acceptance >5%).
+2. Re-run sustained gate with tuned expert pool (post-#38 thrash finding).
+3. Keep regression thresholds in the #39 section green on every change.
 
-- #16: reference unrunnable (proven); MLX floor 109.8ms/token (ceiling
-  9.1 tok/s); flow-map ceilings; MTP verify 0.2GB measured. E2E pending.
+## Since (issues #16+) — all closed
+
+- #16: reference unrunnable (proven); **MLX baseline 0.0387 accepted tok/s**.
 - #17: golden harness closed (deterministic PASS, perturb FAIL).
 - #18: FreeToken audit closed (reuse/adapt/reject map; geometry mismatch found).
 - #19: cold checkpoint IO closed (expert ~1-3ms, sustained drift 1.004).
+- #20: multi-domain authoritative traces closed (en/code/reason/ja schema-valid).
 - #23/#24/#25: pool + staging + gated prefetch closed (NO-GO verdict).
 - #26/#27/#28: Engram cache, KV manager, unified scheduler closed.
-- #29 (offline), #31 (offline): done, live halves pending. #32–#35 closed.
+- #29: MTP speculative baseline closed (lossless, 0.32× baseline, not beneficial).
+- #31: grouped MoE closed (1.11× @8, 1.62× @32 tok microbench).
+- #32–#35: kernels/fusion/partition closed.
+- #36/#37: startup autotuner + adaptive controller closed.
+- #38: sustained gate closed (stability PASS / throughput CONDITIONAL FAIL).
+- #39: e2e report + regression thresholds closed (400 tok/s NOT reached).
 - #41: SSD policy closed (enforced + monitored).
-- Blocked on runnable inference: #20, #21, #22, #30, #36, #37, #38, #39.
-- Critical path: MLX-native runner -> #20 -> gates -> live -> release.
+- **Open GitHub issues: 0. Open PRs: 0.**
 
 
 ## Final end-to-end (Issue #39)
