@@ -202,13 +202,18 @@ class ExpertLoader:
         else:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 reads = list(pool.map(_read, specs))
+        # Dequant all experts first (lazy kernels), one eval at the end so
+        # Metal command buffers can batch instead of syncing per expert.
         out: dict[tuple[str, int, int], dict[str, mx.array]] = {}
+        pending: list[mx.array] = []
         for key, parts in reads:
             expert_out: dict[str, mx.array] = {}
             for role, wdata, sdata, (rows, pair_cols) in parts:
                 expert_out[role] = self._dequant_metal(wdata, sdata, rows, pair_cols)
+                pending.append(expert_out[role])
             out[key] = expert_out
-            mx.eval(list(expert_out.values()))
+        if pending:
+            mx.eval(pending)
         return out
 
 

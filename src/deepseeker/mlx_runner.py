@@ -15,6 +15,7 @@ no distributed, no vision. DSpark/MTP draft path implemented (#29).
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -56,11 +57,14 @@ class Runner:
         self._shared_topk = None
         self._shared_indexk = None
         self._candidates = None
-        self._expert_cache: dict[tuple[str, int, int], dict] = {}
-        self._expert_lru: list[tuple[str, int, int]] = []
+        # OrderedDict = O(1) LRU. Separate protected set pins the previous
+        # decode step's working set so temporal prefetch can actually hit
+        # (cap must hold ~2 steps or pin is useless).
+        self._expert_cache: OrderedDict[tuple[str, int, int], dict] = OrderedDict()
+        self._expert_protected: set[tuple[str, int, int]] = set()
+        self._expert_used_now: set[tuple[str, int, int]] = set()
         self._mtp_window: dict[int, mx.array] = {}
-        # 40 layers x 6 activated experts = 240-key working set; cap must
-        # cover it or LRU thrashes to 0% hits (measured base8: 0 hits @ cap64).
+        # 40 layers x 6 = 240/step; protect prev step + hold current => ~480.
         self._expert_cache_cap = max(240, int(expert_cache_cap))
         self.expert_loads = 0
         self.expert_cache_hits = 0
@@ -69,10 +73,9 @@ class Runner:
         self._last_route: dict[tuple[str, int], list[int]] = {}
         self._prefetch_pool = None
         try:
-            # Dense ~15GiB + up to ~27GiB experts + activations; keep headroom
-            # under 64GiB for KV/Engram/temp.
-            mx.set_cache_limit(8 * 1024**3)
-            mx.set_memory_limit(52 * 1024**3)
+            # Dense ~18GiB + experts (cap*70.8MB) + head f32; leave KV/engram slack.
+            mx.set_cache_limit(4 * 1024**3)
+            mx.set_memory_limit(56 * 1024**3)
         except (RuntimeError, AttributeError):
             pass  # non-Metal backends ignore memory governance
 
@@ -104,17 +107,63 @@ class Runner:
         return normed.astype(mx.float32) @ wt
 
     # -- MoE --------------------------------------------------------------
+    def _expert_touch(self, key: tuple[str, int, int], weights: dict | None = None) -> dict:
+        """LRU touch; optionally insert. Never evicts used_now keys."""
+        cache = self._expert_cache
+        if weights is not None:
+            cache[key] = weights
+            self._expert_used_now.add(key)
+        elif key in cache:
+            cache.move_to_end(key)
+            self._expert_used_now.add(key)
+        while len(cache) > self._expert_cache_cap:
+            victim = None
+            # Pass 1: unprotected, not used this step.
+            for old in cache:
+                if old not in self._expert_used_now and old not in self._expert_protected:
+                    victim = old
+                    break
+            # Pass 2: protected but idle (prev-step history).
+            if victim is None:
+                for old in cache:
+                    if old not in self._expert_used_now:
+                        victim = old
+                        break
+            # Pass 3: everything in use — drop oldest (should be rare).
+            if victim is None and cache:
+                victim = next(iter(cache))
+            if victim is None:
+                break
+            del cache[victim]
+            self.expert_evictions += 1
+        return cache[key]
+
+    def _expert_begin_step(self, *, new_sequence: bool = False) -> None:
+        """Start of forward: pin prev-step keys; clear pin on new sequence."""
+        if new_sequence:
+            self._expert_protected = set()
+            self._expert_used_now = set()
+            return
+        if self._expert_used_now:
+            self._expert_protected = set(self._expert_used_now)
+        self._expert_used_now = set()
+
     def shrink_expert_cache(self, new_cap: int) -> int:
         """Lower the expert cache cap, evicting LRU excess. Returns evicted count."""
-        new_cap = max(1, new_cap)
+        new_cap = max(1, int(new_cap))
         self._expert_cache_cap = new_cap
         evicted = 0
         while len(self._expert_cache) > new_cap:
-            old = self._expert_lru.pop(0)
-            if old in self._expert_cache:
-                del self._expert_cache[old]
-                self.expert_evictions += 1
-                evicted += 1
+            victim = None
+            for k in self._expert_cache:
+                if k not in self._expert_protected:
+                    victim = k
+                    break
+            if victim is None:
+                victim = next(iter(self._expert_cache))
+            del self._expert_cache[victim]
+            self.expert_evictions += 1
+            evicted += 1
         return evicted
 
     def _expert_fn(self, layer: int, ns: str = "layers"):
@@ -123,21 +172,11 @@ class Runner:
             hit = self._expert_cache.get(key)
             if hit is not None:
                 self.expert_cache_hits += 1
-                try:
-                    self._expert_lru.remove(key)
-                except ValueError:
-                    pass
-                self._expert_lru.append(key)
+                self._expert_touch(key)
                 return hit["w1"], hit["w3"], hit["w2"]
             self.expert_loads += 1
             d = self._expert_loader.load_expert(layer, expert, prefix=ns)
-            self._expert_cache[key] = d
-            self._expert_lru.append(key)
-            while len(self._expert_cache) > self._expert_cache_cap:
-                old = self._expert_lru.pop(0)
-                if old in self._expert_cache:
-                    del self._expert_cache[old]
-                    self.expert_evictions += 1
+            self._expert_touch(key, d)
             return d["w1"], d["w3"], d["w2"]
         return fetch
 
@@ -150,6 +189,8 @@ class Runner:
             key = (ns, layer, int(e))
             if key not in self._expert_cache:
                 missing.append((layer, int(e), ns))
+            else:
+                self._expert_touch(key)
         if not missing:
             return
         loaded = self._expert_loader.load_experts_parallel(
@@ -157,15 +198,10 @@ class Runner:
         for (prefix, ly, ex), d in loaded.items():
             key = (prefix, ly, ex)
             if key in self._expert_cache:
+                self._expert_touch(key)
                 continue
-            self._expert_cache[key] = d
-            self._expert_lru.append(key)
             self.expert_loads += 1
-        while len(self._expert_cache) > self._expert_cache_cap:
-            old = self._expert_lru.pop(0)
-            if old in self._expert_cache:
-                del self._expert_cache[old]
-                self.expert_evictions += 1
+            self._expert_touch(key, d)
 
     def _shared_fn(self, layer: int, ns: str = "layers"):
         if ns == "mtp":
@@ -199,11 +235,6 @@ class Runner:
             if n_tok == 1:
                 self._last_route[(ns, layer_id)] = sorted(
                     {int(e) for e in idx[0]})
-            elif (ns, layer_id) in self._last_route:
-                # Prefill: don't grow the working set; keep prior decode map
-                # only if we are not about to use it (forward will skip
-                # prefetch when last_route is stale for start_pos==0).
-                pass
             # Backbone schema only records layers [0, n_layers); skip MTP drafts.
             if self._trace is not None and ns == "layers":
                 self._trace.router(layer_id, token_start, idx, w)
@@ -220,6 +251,8 @@ class Runner:
 
         Returns a Future so the caller can overlap loads with embed/attention.
         Only misses are loaded; LRU already holds the previous working set.
+        Multi-step unions are intentionally NOT used: they over-fetch and
+        thrash the 256–400 key budget (measured loads 4896 vs 2771).
         """
         if not self._last_route:
             return None
@@ -242,15 +275,10 @@ class Runner:
             for (prefix, ly, ex), d in loaded.items():
                 key = (prefix, ly, ex)
                 if key in self._expert_cache:
+                    self._expert_touch(key)
                     continue
-                self._expert_cache[key] = d
-                self._expert_lru.append(key)
                 self.expert_loads += 1
-            while len(self._expert_cache) > self._expert_cache_cap:
-                old = self._expert_lru.pop(0)
-                if old in self._expert_cache:
-                    del self._expert_cache[old]
-                    self.expert_evictions += 1
+                self._expert_touch(key, d)
 
         return self._prefetch_pool.submit(_work)
 
@@ -797,12 +825,12 @@ class Runner:
         """
         cfg = self._config
         hc = cfg["hc_mult"]
+        self._expert_begin_step(new_sequence=(start_pos == 0))
         warm_future = None
         if start_pos == 0:
             # New sequence: drop temporal map so we don't prefetch stale keys.
             self._last_route.clear()
         elif self._last_route:
-            # Decode: kick async warm; join before MoE needs the keys.
             warm_future = self.prefetch_last_routes()
         h = self.embed(token_ids)
         h = mx.broadcast_to(h[:, None, :], (h.shape[0], hc, h.shape[1]))
