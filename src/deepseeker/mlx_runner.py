@@ -311,25 +311,25 @@ class Runner:
     def _sparse_attn(self, q: mx.array, kv: mx.array, topk_idxs: mx.array,
                      sink: mx.array, scale: float) -> mx.array:
         """Gather + online softmax + sink (sink feeds denominator only)."""
-        kvf = np.asarray(kv.astype(mx.float32))
-        qf = np.asarray(q.astype(mx.float32))
-        sink_np = np.asarray(sink.astype(mx.float32))
-        m, h, d = qf.shape
-        idx = np.asarray(topk_idxs, dtype=np.int64).reshape(m, -1)
-        outs = []
-        for qi in range(m):
-            rows = idx[qi]
-            valid = rows[rows >= 0]
-            if valid.size == 0:
-                outs.append(np.zeros((h, d), dtype=np.float32))
-                continue
-            k = kvf[valid]
-            scores = np.einsum("hd,kd->hk", qf[qi], k) * scale
-            mrow = scores.max(axis=1, keepdims=True)
-            exp_s = np.exp(scores - mrow)
-            denom = exp_s.sum(axis=1, keepdims=True) + np.exp(sink_np[:, None] - mrow)
-            outs.append((exp_s / denom) @ k)
-        return mx.array(np.stack(outs, axis=0)).astype(q.dtype)
+        # Stay on device: previous numpy path forced GPU->CPU every layer.
+        qf = q.astype(mx.float32)
+        kvf = kv.astype(mx.float32)
+        sink_f = sink.astype(mx.float32)
+        m, _, d = qf.shape
+        idx = topk_idxs.reshape(m, -1)
+        mask = idx >= 0
+        safe = mx.maximum(idx, 0).astype(mx.int32)
+        kg = kvf[safe.reshape(-1)].reshape(m, -1, d)  # [m, k, d]
+        scores = mx.einsum("mhd,mkd->mhk", qf, kg) * scale
+        scores = mx.where(mask[:, None, :], scores,
+                          mx.full(scores.shape, -1e30, dtype=mx.float32))
+        mrow = mx.max(scores, axis=-1, keepdims=True)
+        exp_s = mx.exp(scores - mrow)
+        exp_s = mx.where(mask[:, None, :], exp_s, mx.zeros_like(exp_s))
+        denom = mx.sum(exp_s, axis=-1, keepdims=True) + mx.exp(
+            sink_f[None, :, None] - mrow)
+        out = mx.einsum("mhk,mkd->mhd", exp_s / denom, kg)
+        return out.astype(q.dtype)
 
     def _unrotary(self, x: mx.array, freqs: mx.array) -> mx.array:
         d = x.shape[-1]
@@ -493,10 +493,11 @@ class Runner:
         weights = (x.astype(mx.float32)
                    @ self._dense[p + "indexer.weights_proj.weight"].astype(mx.float32).T)
         weights = weights * (index_dim**-0.5 * n_heads**-0.5)
-        score = np.einsum("shd,td->sht", np.asarray(q.astype(mx.float32)),
-                          np.asarray(index_k.astype(mx.float32)))
-        score = np.maximum(score, 0) * np.asarray(weights)[:, :, None]
-        score = score.sum(axis=1)
+        # GPU score: avoid per-layer GPU->CPU sync of full [S,H,T] tensor.
+        score_mx = mx.einsum("shd,td->sht", q.astype(mx.float32),
+                             index_k.astype(mx.float32))
+        score_mx = mx.maximum(score_mx, 0) * weights[:, :, None]
+        score = np.einsum("sht->st", np.asarray(score_mx))
         if start_pos == 0:
             cl = (np.arange(1, seqlen + 1) // ratio)[:, None]
             score = np.where(np.arange(score.shape[1]) >= cl, -np.inf, score)
