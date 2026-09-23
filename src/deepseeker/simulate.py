@@ -235,7 +235,10 @@ def evaluate(
     expert_bytes: int = 0,
 ) -> dict:
     """Causal simulation: predict each record before observing it."""
-    ordered = sorted(records, key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
+    from deepseeker.trace import expert_records
+
+    ordered = sorted(expert_records(records),
+                     key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
     recall_sum = 0.0
     exact = 0
     fp_sum = 0

@@ -31,7 +31,7 @@ from deepseeker.pool import ResidentPool, load_expert_bytes
 from deepseeker.prefetch import PrefetchController
 from deepseeker.scheduler import UnifiedScheduler
 from deepseeker.stage import StagingEngine
-from deepseeker.trace import read_trace
+from deepseeker.trace import expert_records, read_trace
 
 
 def run_arm(token_groups, refs, manifest, model_root, config, ctx, budget_mib,
@@ -154,7 +154,7 @@ def main() -> int:
             key = (tensor["layer"], tensor["expert"])
             per_expert[key] = per_expert.get(key, 0) + tensor["bytes"]
     groups: dict[tuple[str, int], list] = {}
-    for record in records:
+    for record in expert_records(records):
         groups.setdefault((record["request_id"], record["token_pos"]), []).append(record)
     tokens = [groups[k] for k in sorted(groups)]
     if args.max_tokens:

@@ -74,3 +74,6 @@ upstream/*
 
 # Hugging Face cache
 .cache/
+!profiles/traces/
+profiles/traces/*
+!profiles/traces/*.jsonl

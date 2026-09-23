@@ -59,6 +59,8 @@ def main() -> int:
     parser.add_argument("--tokens", type=str, default="8,32")
     parser.add_argument("--experts", type=int, default=64)
     parser.add_argument("--iters", type=int, default=10)
+    parser.add_argument("--trace", type=Path, default=None,
+                        help="use real top-k assignments (grouped in blocks of --tokens)")
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
 
@@ -66,13 +68,42 @@ def main() -> int:
     print(f"experts={args.experts} top_k={TOP_K} shapes={HIDDEN}/{INTER}")
     print("tokens  naive_ms  grouped_ms  align_ms  maxdiff   speedup")
     rows = []
-    for tokens in [int(t) for t in args.tokens.split(",") if t.strip()]:
-        topk = [sorted(rng.sample(range(args.experts), TOP_K)) for _ in range(tokens)]
+    blocks: list[tuple[int, list[list[int]]]] = []
+    if args.trace:
+        from deepseeker.trace import expert_records, read_trace
+
+        _header, _records = read_trace(args.trace)
+        by_token: dict[int, list[int]] = {}
+        for record in expert_records(_records):
+            if record["layer"] == 0:
+                by_token.setdefault(record["token_pos"], []).extend(record["experts"])
+        ordered = [sorted(set(by_token[pos]))[:TOP_K] for pos in sorted(by_token)]
+        for tokens in [int(t) for t in args.tokens.split(",") if t.strip()]:
+            for start in range(0, len(ordered), tokens):
+                chunk = ordered[start:start + tokens]
+                if len(chunk) == tokens:
+                    blocks.append((tokens, chunk))
+    else:
+        for tokens in [int(t) for t in args.tokens.split(",") if t.strip()]:
+            topk = [sorted(rng.sample(range(args.experts), TOP_K)) for _ in range(tokens)]
+            blocks.append((tokens, topk))
+    for tokens, topk in blocks:
         router = [[1.0 / TOP_K] * TOP_K for _ in range(tokens)]
+        need = sorted({e for row in topk for e in row})
+        if args.trace:
+            for expert in need:
+                if expert not in weights:
+                    mx.random.seed(1000 + expert)
+                    gate = mx.random.normal((HIDDEN, INTER), dtype=mx.bfloat16) * 0.02
+                    up = mx.random.normal((HIDDEN, INTER), dtype=mx.bfloat16) * 0.02
+                    down = mx.random.normal((INTER, HIDDEN), dtype=mx.bfloat16) * 0.02
+                    weights[expert] = (gate, up, down)
+            mx.eval(list(weights.values()))
+        n_exp = max(need) + 1 if need else args.experts
         x = mx.random.normal((tokens, HIDDEN), dtype=mx.bfloat16)
         mx.eval(x)
         start = time.perf_counter()
-        groups = plan_groups(topk, args.experts)
+        groups = plan_groups(topk, n_exp)
         align_ms = (time.perf_counter() - start) * 1000
         naive_s = bench(lambda x=x, weights=weights, topk=topk, router=router: naive_swiglu(x, weights, topk, router), args.iters)
         grouped_s = bench(lambda x=x, weights=weights, groups=groups, router=router: grouped_swiglu(x, weights, groups, router), args.iters)

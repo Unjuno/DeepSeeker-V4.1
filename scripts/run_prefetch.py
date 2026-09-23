@@ -23,12 +23,12 @@ from deepseeker.baseline import load_json
 from deepseeker.pool import ResidentPool, load_expert_bytes
 from deepseeker.prefetch import PrefetchController
 from deepseeker.stage import StagingEngine
-from deepseeker.trace import read_trace
+from deepseeker.trace import expert_records, read_trace
 
 
 def group_tokens(records):
     groups = {}
-    for record in records:
+    for record in expert_records(records):
         groups.setdefault((record["request_id"], record["token_pos"]), []).append(record)
     return [groups[k] for k in sorted(groups)]
 

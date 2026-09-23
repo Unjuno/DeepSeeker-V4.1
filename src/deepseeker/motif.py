@@ -14,9 +14,12 @@ from __future__ import annotations
 
 from collections import Counter
 
+from deepseeker.trace import expert_records
+
 
 def layer_bigrams(records: list[dict]) -> Counter[tuple[tuple[int, int], tuple[int, int]]]:
     """Count ((layer, expert) -> (layer+1, expert)) co-occurrences in tokens."""
+    records = expert_records(records)
     by_token: dict[tuple[str, int], dict[int, list[int]]] = {}
     for record in records:
         by_token.setdefault((record["request_id"], record["token_pos"]), {})[
@@ -39,6 +42,7 @@ def motif_coverage(
     """Fraction of adjacent-layer expert pairs covered by the motif set."""
     covered = 0
     total = 0
+    records = expert_records(records)
     by_token: dict[tuple[str, int], dict[int, list[int]]] = {}
     for record in records:
         by_token.setdefault((record["request_id"], record["token_pos"]), {})[
@@ -60,6 +64,7 @@ def block_working_sets(records: list[dict], block_size: int) -> list[dict]:
     """Unique expert sets per (request, token-block, layer)."""
     if block_size < 1:
         raise ValueError(f"block_size must be >= 1, got {block_size!r}")
+    records = expert_records(records)
     blocks: dict[tuple[str, int, int], set[int]] = {}
     for record in records:
         key = (record["request_id"], record["token_pos"] // block_size, record["layer"])

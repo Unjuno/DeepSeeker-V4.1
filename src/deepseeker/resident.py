@@ -24,7 +24,10 @@ POLICIES = ("demand_lru", "prefetch", "belady")
 
 
 def _ordered(records: list[dict]) -> list[dict]:
-    return sorted(records, key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
+    from deepseeker.trace import expert_records
+
+    return sorted(expert_records(records),
+                  key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
 
 
 def _future_uses(records: list[dict]) -> dict[tuple[int, int], list[int]]:

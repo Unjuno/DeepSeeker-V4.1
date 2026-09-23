@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from deepseeker.baseline import load_json
 from deepseeker.pool import ResidentPool
 from deepseeker.stage import StagingEngine
-from deepseeker.trace import read_trace
+from deepseeker.trace import expert_records, read_trace
 
 
 def main() -> int:
@@ -56,7 +56,8 @@ def main() -> int:
     pool = ResidentPool(args.slots, max(per_expert.values()))
     engine = StagingEngine(model_root, manifest, max_workers=args.qd,
                            max_staging_bytes=args.staging_mib * 1024**2)
-    ordered = sorted(records, key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
+    ordered = sorted(expert_records(records),
+                     key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
     seen: set[tuple[str, int]] = set()
     misses = 0
     start = time.perf_counter()

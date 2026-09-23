@@ -21,6 +21,9 @@ from deepseeker.simulate import make_predictor
 
 def _group_tokens(records: list[dict]) -> list[tuple[str, int, list[dict]]]:
     """Group records into (request_id, token_pos, [records]) in order."""
+    from deepseeker.trace import expert_records
+
+    records = expert_records(records)
     groups: dict[tuple[str, int], list[dict]] = {}
     for record in records:
         groups.setdefault((record["request_id"], record["token_pos"]), []).append(record)

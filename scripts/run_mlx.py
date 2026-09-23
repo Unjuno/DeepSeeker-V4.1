@@ -51,8 +51,25 @@ class TraceSink:
     def token(self, token: int) -> None:
         self.tokens_seen.append(token)
 
-    def engram(self, layer: int, hash_ids) -> None:
-        pass
+    def engram(self, layer: int, token_start: int, hash_ids) -> None:
+        self.records.append({
+            "kind": "event",
+            "request_id": self.request_id,
+            "token_pos": token_start,
+            "layer": layer,
+            "extra": {"kind": "engram", "n_hashes": len(hash_ids),
+                      "sample_rows": [int(r) for r in hash_ids[0][:4]]},
+        })
+
+    def kv(self, layer: int, token_start: int, compress_rows: int, topk_count: int) -> None:
+        self.records.append({
+            "kind": "event",
+            "request_id": self.request_id,
+            "token_pos": token_start,
+            "layer": layer,
+            "extra": {"kind": "kv", "compress_rows": compress_rows,
+                      "topk_count": topk_count},
+        })
 
 
 def main() -> int:
@@ -60,6 +77,11 @@ def main() -> int:
     parser.add_argument("--prompt", type=str, default="Say hello.")
     parser.add_argument("--max-tokens", type=int, default=10)
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--expert-cap", type=int, default=None,
+                        help="dequantized expert cache cap (default 64)")
+    parser.add_argument("--tune", type=Path, default=None,
+                        help="recommended.json from autotune.py; sets cap "
+                             "= resident_slots_per_layer x 40")
     parser.add_argument("--trace-out", type=Path, default=None)
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
@@ -74,7 +96,14 @@ def main() -> int:
 
     request_id = f"mlx-{int(time.time())}"
     sink = TraceSink(request_id)
-    runner = Runner(model_root, manifest, config, trace_hook=sink)
+    expert_cap = args.expert_cap or 64
+    if args.tune:
+        tune = load_json(args.tune)
+        expert_cap = int(tune["config"]["resident_slots_per_layer"]) * 40
+        print(f"tune: expert_cap={expert_cap} "
+              f"(predictor={tune['config']['predictor']})", flush=True)
+    runner = Runner(model_root, manifest, config, trace_hook=sink,
+                    expert_cache_cap=expert_cap)
     try:
         prompt = encode_messages([{"role": "user", "content": args.prompt}], "chat")
         ids = tokenizer.encode(prompt)
@@ -91,6 +120,9 @@ def main() -> int:
             "text": text,
             "timings": out["timings"],
             "expert_loads": runner.expert_loads,
+            "expert_cache_hits": runner.expert_cache_hits,
+            "expert_evictions": runner.expert_evictions,
+            "expert_cap": expert_cap,
         }
         if args.trace_out:
             from deepseeker.trace import arch_config

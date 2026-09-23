@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from deepseeker.baseline import load_json
 from deepseeker.pool import ResidentPool, load_expert_bytes
-from deepseeker.trace import read_trace
+from deepseeker.trace import expert_records, read_trace
 
 
 def main() -> int:
@@ -57,7 +57,8 @@ def main() -> int:
             per_expert[key] = per_expert.get(key, 0) + tensor["bytes"]
     max_blob = max(per_expert.values())
     pool = ResidentPool(args.slots, max_blob, args.policy)
-    ordered = sorted(records, key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
+    ordered = sorted(expert_records(records),
+                     key=lambda r: (r["request_id"], r["token_pos"], r["layer"]))
     seen_tokens: set[tuple[str, int]] = set()
     served = verified = 0
     start = time.perf_counter()

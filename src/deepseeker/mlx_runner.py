@@ -29,7 +29,7 @@ class Runner:
     """Owns weights, caches, and streaming loaders for one session."""
 
     def __init__(self, model_root: Path | str, manifest: dict, config: dict,
-                 trace_hook=None) -> None:
+                 trace_hook=None, expert_cache_cap: int = 64) -> None:
         self._root = Path(model_root)
         self._manifest = manifest
         self._config = config
@@ -55,7 +55,7 @@ class Runner:
         self._candidates = None
         self._expert_cache: dict[tuple[int, int], dict] = {}
         self._expert_lru: list[tuple[int, int]] = []
-        self._expert_cache_cap = 64  # experts; ~4.5GB bf16 working set
+        self._expert_cache_cap = expert_cache_cap  # experts; ~70MB bf16 each
         self.expert_loads = 0
         self.expert_cache_hits = 0
         self.expert_evictions = 0
@@ -84,6 +84,19 @@ class Runner:
         return normed.astype(mx.float32) @ head_w.astype(mx.float32).T
 
     # -- MoE --------------------------------------------------------------
+    def shrink_expert_cache(self, new_cap: int) -> int:
+        """Lower the expert cache cap, evicting LRU excess. Returns evicted count."""
+        new_cap = max(1, new_cap)
+        self._expert_cache_cap = new_cap
+        evicted = 0
+        while len(self._expert_cache) > new_cap:
+            old = self._expert_lru.pop(0)
+            if old in self._expert_cache:
+                del self._expert_cache[old]
+                self.expert_evictions += 1
+                evicted += 1
+        return evicted
+
     def _expert_fn(self, layer: int):
         def fetch(expert: int):
             key = (layer, expert)
@@ -419,6 +432,7 @@ class Runner:
         self._window[layer] = ring
 
         topk_all = idxs
+        ck = None
         if ratio:
             compress_len = (start_pos + seqlen) // ratio
             latent = None
@@ -441,7 +455,11 @@ class Runner:
                 topk_all = self._shift_compress_idxs(
                     idxs, cidx, int(window_kv.shape[0]) - int(ck.shape[0]))
         sink = self._dense[p + "attn_sink"].astype(mx.float32)
+        n_compress = int(ck.shape[0]) if ratio and ck is not None else 0
         out = self._sparse_attn(q, window_kv, topk_all, sink, head_dim**-0.5)
+        if self._trace is not None:
+            self._trace.kv(layer, start_pos, n_compress,
+                           int(np.asarray(topk_all).shape[-1]))
         out = mx.concatenate([out[..., :-rd], self._unrotary(out[..., -rd:], freqs)], axis=-1)
         o_groups = cfg.get("o_groups", 8)
         o_lora = cfg.get("o_lora_rank", 1024)
@@ -532,7 +550,7 @@ class Runner:
         return (E4M3_TABLE[w_raw.astype(np.int64)] * np.repeat(
             decode_u8m0(s_raw), 32)).astype(np.float32)
 
-    def engram_forward(self, layer: int, x: mx.array, hash_ids: np.ndarray) -> mx.array:
+    def engram_forward(self, layer: int, start_pos: int, x: mx.array, hash_ids: np.ndarray) -> mx.array:
         """Exact Engram math: embed rows -> wkv -> gated add into stream."""
         cfg = self._config
         dim, hc = cfg["dim"], cfg["hc_mult"]
@@ -553,7 +571,7 @@ class Runner:
         gate = 1 / (1 + np.exp(-np.copysign(np.clip(np.abs(dot), 1e-6, None) ** 0.5, dot)))
         out = h + gate[..., None] * value.reshape(value.shape[0], 1, dim)
         if self._trace is not None:
-            self._trace.engram(layer, hash_ids.tolist())
+            self._trace.engram(layer, start_pos, hash_ids.tolist())
         return mx.array(out.astype(np.float32)).astype(x.dtype)
 
     # -- block + transformer ------------------------------------------------------
@@ -598,7 +616,7 @@ class Runner:
         for layer in range(cfg["n_layers"]):
             if hashes is not None and layer in cfg["engram_layer_ids"]:
                 li = cfg["engram_layer_ids"].index(layer)
-                h = self.engram_forward(layer, h, hashes[:, li, :])
+                h = self.engram_forward(layer, start_pos, h, hashes[:, li, :])
             h, pre_mix = self.block(layer, h, start_pos, pre_mix)
         final = F.hc_pre(h, pre_mix)
         return self.head_logits(final)

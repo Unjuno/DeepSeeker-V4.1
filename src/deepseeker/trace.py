@@ -69,13 +69,31 @@ def make_header(
     return header
 
 
+def _validate_event(record: dict, header: dict) -> list[str]:
+    """Subsystem events (Issue #20): engram lookups, KV/index service."""
+    problems = []
+    if not isinstance(record.get("request_id"), str) or not record["request_id"]:
+        problems.append("request_id must be a nonempty string")
+    if not isinstance(record.get("token_pos"), int) or record["token_pos"] < 0:
+        problems.append(f"token_pos out of range: {record.get('token_pos')!r}")
+    layer = record.get("layer")
+    if not isinstance(layer, int) or not 0 <= layer < header["n_layers"]:
+        problems.append(f"layer out of range: {layer!r}")
+    extra = record.get("extra")
+    if not isinstance(extra, dict) or extra.get("kind") not in ("engram", "kv"):
+        problems.append(f"event extra.kind must be engram/kv: {extra!r}")
+    return problems
+
+
 def validate_record(record: dict, header: dict) -> list[str]:
     """Return problem strings (empty == valid) for one trace record."""
-    problems = []
+    if record.get("kind") == "event":
+        return _validate_event(record, header)
     if record.get("kind", "record") != "record":
         return [f"bad kind: {record.get('kind')!r}"]
     top_k = header["top_k"]
     n_exp = header["n_routed_experts"]
+    problems = []
     if not isinstance(record.get("request_id"), str) or not record["request_id"]:
         problems.append("request_id must be a nonempty string")
     if not isinstance(record.get("token_pos"), int) or record["token_pos"] < 0:
@@ -113,7 +131,8 @@ def write_trace(path: Path, header: dict, records: list[dict]) -> int:
     """Write header + records as JSONL; returns record count."""
     with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(header) + "\n")
-        f.writelines(json.dumps({"kind": "record", **r}) + "\n" for r in records)
+        f.writelines(json.dumps(r if "kind" in r else {"kind": "record", **r}) + "\n"
+                     for r in records)
     return len(records)
 
 
@@ -135,13 +154,20 @@ def read_trace(path: Path) -> tuple[dict, list[dict]]:
         problems = validate_record(record, header)
         if problems:
             raise ValueError(f"line {i}: {problems[0]}")
-        record.pop("kind", None)
+        if record.get("kind", "record") == "record":
+            record.pop("kind", None)
         records.append(record)
     return header, records
 
 
+def expert_records(records: list[dict]) -> list[dict]:
+    """Routing records only (skip kind == 'event' subsystem events)."""
+    return [r for r in records if r.get("kind", "record") == "record"]
+
+
 def layer_histogram(records: list[dict], n_layers: int) -> dict[int, dict[int, int]]:
     """Per-layer {expert_id: count} over trace records."""
+    records = expert_records(records)
     hist: dict[int, dict[int, int]] = {layer: {} for layer in range(n_layers)}
     for record in records:
         bucket = hist[record["layer"]]
@@ -152,6 +178,7 @@ def layer_histogram(records: list[dict], n_layers: int) -> dict[int, dict[int, i
 
 def trace_stats(header: dict, records: list[dict]) -> dict:
     """Summary stats: coverage, unique experts, adjacent-token stability."""
+    records = expert_records(records)
     n_layers = header["n_layers"]
     hist = layer_histogram(records, n_layers)
     unique = {layer: len(bucket) for layer, bucket in hist.items()}

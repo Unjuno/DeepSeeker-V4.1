@@ -71,10 +71,26 @@ def test_validate_rejects_bad_records():
     assert validate_record(bad_scores, header)
 
 
-def test_roundtrip_jsonl(tmp_path):
+def test_event_records_validate():
+    header = tiny_header()
+    good_engram = {"kind": "event", "request_id": "r", "token_pos": 3, "layer": 1,
+                   "extra": {"kind": "engram", "n_hashes": 5}}
+    good_kv = {"kind": "event", "request_id": "r", "token_pos": 3, "layer": 1,
+               "extra": {"kind": "kv", "compress_rows": 2, "topk_count": 64}}
+    assert validate_record(good_engram, header) == []
+    assert validate_record(good_kv, header) == []
+    bad = dict(good_engram, token_pos=-1)
+    assert validate_record(bad, header)
+    bad2 = dict(good_kv, extra={"kind": "bogus"})
+    assert validate_record(bad2, header)
+
+
+def test_roundtrip_with_events(tmp_path):
     header = tiny_header()
     records = emit_synthetic(header, n_requests=2, tokens_per_request=3, seed=1)
-    assert len(records) == 2 * 3 * 2
+    records.append({"kind": "event", "request_id": "synthetic-1-0", "token_pos": 0,
+                    "layer": 1, "extra": {"kind": "kv", "compress_rows": 1, "topk_count": 4}})
+    assert len(records) == 2 * 3 * 2 + 1
     path = tmp_path / "trace.jsonl"
     assert write_trace(path, header, records) == len(records)
     back_header, back = read_trace(path)
