@@ -159,9 +159,11 @@ class ExpertLoader:
 
     def _kernel_bf16(self):
         if self._metal_kernel_bf16 is None:
-            from deepseeker.metal_fp4 import _kernel_bf16_fn
-            self._metal_kernel_bf16, self._metal_lut = _kernel_bf16_fn()
-        return self._metal_kernel_bf16, self._metal_lut
+            from deepseeker.metal_fp4 import _kernel_bf16_u8_fn
+            (self._metal_kernel_bf16,
+             self._metal_lut,
+             self._metal_scale_lut) = _kernel_bf16_u8_fn()
+        return self._metal_kernel_bf16, self._metal_lut, self._metal_scale_lut
 
     def _tensor(self, name: str) -> tuple[np.ndarray, tuple[int, ...]]:
         entry = self._by_name[name]
@@ -183,16 +185,15 @@ class ExpertLoader:
 
         Stores bf16 directly (no f32 intermediate) -- bit-identical to
         `.astype(mx.bfloat16)` and ~1.7x faster with ~5x less write traffic.
+        The ue8m0 scale bytes go up raw and are expanded by a 256-entry
+        LUT on the device, so there is no host-side decode.
         """
-        from deepseeker.metal_fp4 import decode_scales_u8m0
-
         n = rows * pair_cols * 2
-        kernel, lut = self._kernel_bf16()
+        kernel, lut, slut = self._kernel_bf16()
         mp = mx.array(np.frombuffer(wdata, dtype=np.uint8))
-        scales = decode_scales_u8m0(sdata)
-        ms = mx.array(np.ascontiguousarray(scales, dtype=np.float32))
+        ms = mx.array(np.frombuffer(sdata, dtype=np.uint8))
         outs = kernel(
-            inputs=[mp, ms, lut],
+            inputs=[mp, ms, lut, slut],
             output_shapes=[(n,)],
             output_dtypes=[mx.bfloat16],
             grid=(n, 1, 1),

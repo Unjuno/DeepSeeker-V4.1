@@ -48,7 +48,22 @@ out[elem] = bfloat(v);
 _kernel = None
 _LUT = None
 _kernel_bf16 = None
+_kernel_bf16_u8 = None
+_SLUT: mx.array | None = None
 _SCALE_LUT: np.ndarray | None = None
+
+# ue8m0 byte -> power of two, on device. Indexing this LUT on the GPU removes
+# the host-side fancy-index (the dominant cost of a load call) and shrinks the
+# scale upload 4x (raw bytes instead of f32).  0xFF -> NaN per OCP, matching
+# decode_scales_u8m0 exactly.
+_DEQUANT_BF16_U8_SOURCE = """
+uint elem = thread_position_in_grid.x;
+uint byte = packed[elem >> 1];
+uint nib = (elem & 1) ? (byte >> 4) & 0xFu : byte & 0xFu;
+uint s = elem >> 5;
+float v = float(lut[nib]) * slut[scales[s]];
+out[elem] = bfloat(v);
+"""
 
 
 def _kernel_fn():
@@ -78,6 +93,32 @@ def _kernel_bf16_fn():
     return _kernel_bf16, _LUT
 
 
+def _scale_lut_np() -> np.ndarray:
+    global _SCALE_LUT
+    if _SCALE_LUT is None:
+        bits = np.arange(256, dtype=np.int32)
+        lut = np.exp2(bits - 127)
+        lut[0xFF] = np.nan
+        _SCALE_LUT = lut.astype(np.float32)
+    return _SCALE_LUT
+
+
+def _kernel_bf16_u8_fn():
+    global _kernel_bf16_u8, _LUT, _SLUT
+    if _kernel_bf16_u8 is None:
+        if _LUT is None:
+            _LUT = mx.array(FP4_TABLE, dtype=mx.float32)
+        _kernel_bf16_u8 = mx.fast.metal_kernel(
+            name="e2m1_dequant_bf16_u8",
+            input_names=["packed", "scales", "lut", "slut"],
+            output_names=["out"],
+            source=_DEQUANT_BF16_U8_SOURCE,
+        )
+    if _SLUT is None:
+        _SLUT = mx.array(_scale_lut_np(), dtype=mx.float32)
+    return _kernel_bf16_u8, _LUT, _SLUT
+
+
 def reference_dequant(packed: np.ndarray, scales_f32: np.ndarray) -> np.ndarray:
     """Torch/numpy reference: identical math to the Metal kernel."""
     raw = np.frombuffer(packed.tobytes(), dtype=np.uint8)
@@ -92,13 +133,7 @@ def reference_dequant(packed: np.ndarray, scales_f32: np.ndarray) -> np.ndarray:
 
 def decode_scales_u8m0(raw: bytes) -> np.ndarray:
     """ue8m0 bytes -> float32 powers of two (0xFF -> NaN per OCP)."""
-    global _SCALE_LUT
-    if _SCALE_LUT is None:
-        bits = np.arange(256, dtype=np.int32)
-        lut = np.exp2(bits - 127)
-        lut[0xFF] = np.nan
-        _SCALE_LUT = lut.astype(np.float32)
-    return _SCALE_LUT[np.frombuffer(raw, dtype=np.uint8)]
+    return _scale_lut_np()[np.frombuffer(raw, dtype=np.uint8)]
 
 
 def metal_dequant(packed: np.ndarray, scales_f32: np.ndarray) -> np.ndarray:
