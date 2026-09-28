@@ -39,6 +39,7 @@ def main() -> int:
     ids = tok.encode(encode_messages([{"role": "user", "content": "Say hello."}], "chat"))
 
     r = Runner(root, manifest, config, expert_cache_cap=256)
+    r._att_phase_prof = True
     orig_moe_layer = F.moe_layer
     try:
         base = r.generate(ids, 8, temperature=0.0)
@@ -48,6 +49,8 @@ def main() -> int:
         stats: dict = {
             "route": 0.0, "fetch": 0.0, "gemm": 0.0, "shared": 0.0,
             "n_fetch": 0, "n_miss": 0, "n_moe": 0,
+            "engram": 0.0, "hc_mixes": 0.0, "prefetch": 0.0,
+            "warm_wait": 0.0, "embed": 0.0, "hash": 0.0,
         }
 
         def moe_layer_clean(x, gate_w, gate_b, expert_fn, shared_fn, top_k=6,
@@ -99,6 +102,37 @@ def main() -> int:
 
         F.moe_layer = moe_layer_clean
 
+        orig_hc_mixes = F.hc_mixes
+
+        def hc_mixes_timed(*a, **kw):
+            t0 = time.perf_counter()
+            out = orig_hc_mixes(*a, **kw)
+            mx.eval(*out)
+            stats["hc_mixes"] += time.perf_counter() - t0
+            return out
+
+        F.hc_mixes = hc_mixes_timed
+
+        orig_engram = r.engram_forward
+
+        def engram_timed(layer, start_pos, x, hash_ids):
+            t0 = time.perf_counter()
+            out = orig_engram(layer, start_pos, x, hash_ids)
+            mx.eval(out)
+            stats["engram"] += time.perf_counter() - t0
+            return out
+
+        r.engram_forward = engram_timed
+
+        orig_pf = r.prefetch_experts
+
+        def pf_timed(layer, experts, ns="layers"):
+            t0 = time.perf_counter()
+            orig_pf(layer, experts, ns=ns)
+            stats["prefetch"] += time.perf_counter() - t0
+
+        r.prefetch_experts = pf_timed
+
         att_stats = {"rest": 0.0, "n": 0}
         orig_att = r.attention
 
@@ -129,7 +163,14 @@ def main() -> int:
         r._compress.clear()
         r._last_route.clear()
         _reset(stats)
+        ld0 = r._expert_loader
+        ld0.io_s = ld0.dequant_s = ld0.eval_s = 0.0
+        ld0.bytes_read = 0
+        ld0.load_calls = 0
+        ld0.eval_times.clear()
+        ld0.batch_sizes.clear()
         att_stats.update(rest=0.0, n=0)
+        r._att_stats = None
         head_stats.update(t=0.0, n=0)
 
         t0 = time.perf_counter()
@@ -137,7 +178,13 @@ def main() -> int:
         mx.eval(logits)
         prefill_s = time.perf_counter() - t0
         _reset(stats)
+        ld0.io_s = ld0.dequant_s = ld0.eval_s = 0.0
+        ld0.bytes_read = 0
+        ld0.load_calls = 0
+        ld0.eval_times.clear()
+        ld0.batch_sizes.clear()
         att_stats.update(rest=0.0, n=0)
+        r._att_stats = None
         head_stats.update(t=0.0, n=0)
 
         t0 = time.perf_counter()
@@ -156,8 +203,33 @@ def main() -> int:
               f"n_moe={stats['n_moe']} n_fetch={stats['n_fetch']}", flush=True)
         print(f"ATT total={att_stats['rest']*1e3:.0f}ms n={att_stats['n']} "
               f"HEAD={head_stats['t']*1e3:.0f}ms n={head_stats['n']}", flush=True)
+        print(f"HC_MIXES={stats['hc_mixes']*1e3:.0f}ms ENGRAM={stats['engram']*1e3:.0f}ms "
+              f"PREFETCH={stats['prefetch']*1e3:.0f}ms", flush=True)
+        at = r._att_stats or {}
+        print("ATT_BUILD " + " ".join(
+            f"{k}={v*1e3:.0f}" for k, v in sorted(at.items())) + "ms", flush=True)
+        print(f"MEM active={mx.get_active_memory()/2**30:.1f}GiB "
+              f"pool={mx.get_cache_memory()/2**30:.1f}GiB "
+              f"peak={mx.get_peak_memory()/2**30:.1f}GiB",
+              flush=True)
+        print(f"CACHE loads={r.expert_loads} hits={r.expert_cache_hits} "
+              f"hit_rate={(r.expert_cache_hits / max(1, r.expert_loads + r.expert_cache_hits)):.3f} "
+              f"cap={r._expert_cache_cap} resident={len(r._expert_cache)}", flush=True)
+        ld = r._expert_loader
+        print(f"LOADER calls={ld.load_calls} io={ld.io_s:.1f}s dequant={ld.dequant_s:.1f}s "
+              f"eval={ld.eval_s:.1f}s GB={ld.bytes_read/1e9:.1f} (decode-only)", flush=True)
+        if ld.eval_times:
+            et = sorted(ld.eval_times)
+            bs = sorted(ld.batch_sizes)
+            p = lambda q: et[min(len(et) - 1, int(q * len(et)))]
+            print(f"PERCALL eval med={p(0.5)*1e3:.1f}ms p90={p(0.9)*1e3:.1f}ms "
+                  f"max={et[-1]*1e3:.1f}ms min={et[0]*1e3:.1f}ms | "
+                  f"batch med={bs[len(bs)//2]} max={bs[-1]} "
+                  f"| io/call={ld.io_s/len(et)*1e3:.1f}ms deq/call={ld.dequant_s/len(et)*1e3:.1f}ms "
+                  f"ev/call={ld.eval_s/len(et)*1e3:.1f}ms", flush=True)
         accounted = (stats["route"] + stats["fetch"] + stats["gemm"] + stats["shared"]
-                     + att_stats["rest"] + head_stats["t"])
+                     + att_stats["rest"] + head_stats["t"] + stats["hc_mixes"]
+                     + stats["engram"] + stats["prefetch"])
         print(f"RESIDUAL={(decode_s - accounted)*1e3:.0f}ms "
               f"accounted={accounted*1e3:.0f}ms decode={decode_s*1e3:.0f}ms", flush=True)
         out = {
@@ -173,6 +245,9 @@ def main() -> int:
         print(f"wrote {p}", flush=True)
     finally:
         F.moe_layer = orig_moe_layer
+        F.hc_mixes = orig_hc_mixes
+        r.prefetch_experts = orig_pf
+        r.engram_forward = orig_engram
         r.shutdown()
     return 0
 

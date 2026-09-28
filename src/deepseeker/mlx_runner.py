@@ -14,6 +14,7 @@ no distributed, no vision. DSpark/MTP draft path implemented (#29).
 
 from __future__ import annotations
 
+import os
 import time
 from collections import OrderedDict
 from concurrent.futures import Future
@@ -37,6 +38,7 @@ class Runner:
         self._manifest = manifest
         self._config = config
         self._trace = trace_hook
+        self._att_stats: dict | None = None
         self._expert_loader = ExpertLoader(model_root, manifest)
         self._expert_prefetch_workers = expert_prefetch_workers
         print("loading dense weights...", flush=True)
@@ -74,7 +76,10 @@ class Runner:
         self._prefetch_pool = None
         try:
             # Dense ~18GiB + experts (cap*70.8MB) + head f32; leave KV/engram slack.
-            mx.set_cache_limit(4 * 1024**3)
+            # 2GiB is the measured optimum: 3-4GiB retention pushes free RAM to
+            # 0 during decode and the resulting reclaim stalls cost 2.7x (0.337->0.136).
+            mx.set_cache_limit(int(os.environ.get(
+                "DEEPSEEKER_MLX_POOL_GB", "2")) * 1024**3)
             mx.set_memory_limit(56 * 1024**3)
         except (RuntimeError, AttributeError):
             pass  # non-Metal backends ignore memory governance
@@ -591,16 +596,33 @@ class Runner:
         ratio = cfg["compress_ratios"][layer]
         seqlen = x.shape[0]
         freqs = self._freqs_for(layer)[start_pos:start_pos + seqlen]
+        _t = self._att_stats
+        if _t is None:
+            _t = {"proj": 0.0, "kv": 0.0, "ring": 0.0, "compress": 0.0,
+                  "attn": 0.0, "out": 0.0, "build": 0.0}
+            self._att_stats = _t
+        prof = bool(getattr(self, "_att_phase_prof", False))
+        if prof:
+            for _k in ("e_proj", "e_kv", "e_ring", "e_c", "e_attn", "e_out"):
+                _t.setdefault(_k, 0.0)
+        t0 = time.perf_counter()
 
-        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].astype(mx.float32).T,
+        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].T,
                        self._dense[p + "q_norm.weight"], 1e-20)
-        q = (qr @ self._dense[p + "wq_b.weight"].astype(mx.float32).T).reshape(
+        q = (qr @ self._dense[p + "wq_b.weight"].T).reshape(
             seqlen, n_heads, head_dim)
         q = mx.concatenate([q[..., :-rd], F.apply_rotary(q[..., -rd:], freqs)], axis=-1)
+        t1 = time.perf_counter()
+        _t["proj"] = _t.get("proj", 0.0) + t1 - t0
+        if prof:
+            _te = time.perf_counter(); mx.eval(q)
+            _t["e_proj"] += time.perf_counter() - _te; t1 = time.perf_counter()
 
-        kv_new = x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+        kv_new = x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
         kv_new = mx.concatenate(
             [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs)], axis=-1)
+        t_kv = time.perf_counter()
+        _t["kv"] = _t.get("kv", 0.0) + t_kv - t1
         ring = self._window.get(layer)
         if ring is None:
             ring = mx.zeros((win, head_dim), dtype=mx.bfloat16)
@@ -633,6 +655,11 @@ class Runner:
 
         topk_all = idxs
         ck = None
+        t_ring = time.perf_counter()
+        _t["ring"] = _t.get("ring", 0.0) + t_ring - t_kv
+        if prof:
+            _te = time.perf_counter(); mx.eval(window_kv, topk_all)
+            _t["e_ring"] += time.perf_counter() - _te; t_ring = time.perf_counter()
         if ratio:
             compress_len = (start_pos + seqlen) // ratio
             latent = None
@@ -654,9 +681,20 @@ class Runner:
                 window_kv = mx.concatenate([window_kv, ck], axis=0)
                 topk_all = self._shift_compress_idxs(
                     idxs, cidx, int(window_kv.shape[0]) - int(ck.shape[0]))
+        t_c = time.perf_counter()
+        _t["compress"] = _t.get("compress", 0.0) + t_c - t_ring
+        if prof:
+            _te = time.perf_counter(); mx.eval(window_kv, topk_all)
+            _t["e_c"] += time.perf_counter() - _te; t_c = time.perf_counter()
+            _t["compress"] -= (time.perf_counter() - _te)
         sink = self._dense[p + "attn_sink"].astype(mx.float32)
         n_compress = int(ck.shape[0]) if ratio and ck is not None else 0
         out = self._sparse_attn(q, window_kv, topk_all, sink, head_dim**-0.5)
+        t_a = time.perf_counter()
+        _t["attn"] = _t.get("attn", 0.0) + t_a - t_c
+        if prof:
+            _te = time.perf_counter(); mx.eval(out)
+            _t["e_attn"] += time.perf_counter() - _te; t_a = time.perf_counter()
         if self._trace is not None:
             self._trace.kv(layer, start_pos, n_compress,
                            int(np.asarray(topk_all).shape[-1]))
@@ -666,8 +704,15 @@ class Runner:
         wo_a = self._dense[p + "wo_a.weight"].reshape(o_groups, o_lora, -1)
         og = out.reshape(seqlen, o_groups, -1)
         og = mx.einsum("sgd,grd->sgr", og.astype(mx.float32), wo_a.astype(mx.float32))
-        return (og.reshape(seqlen, -1).astype(mx.float32)
-                @ self._dense[p + "wo_b.weight"].astype(mx.float32).T)
+        result = (og.reshape(seqlen, -1).astype(mx.float32)
+                  @ self._dense[p + "wo_b.weight"].T)
+        t_e = time.perf_counter()
+        _t["out"] = _t.get("out", 0.0) + t_e - t_a
+        _t["build"] = _t.get("build", 0.0) + t_e - t0
+        if prof:
+            _te = time.perf_counter(); mx.eval(result)
+            _t["e_out"] += time.perf_counter() - _te
+        return result
 
     @staticmethod
     def _shift_compress_idxs(idxs: mx.array, cidx: mx.array, base: int) -> mx.array:
@@ -872,7 +917,7 @@ class Runner:
         win = cfg["window_size"]
         freqs_m = self._freqs_for(stage, "mtp")[start_pos:start_pos + main_x.shape[0]]
         # main_kv from main_x (projected target hidden), roped at main positions
-        mkv = main_x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+        mkv = main_x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
         mkv = mx.concatenate(
             [mkv[..., :-rd], F.apply_rotary(mkv[..., -rd:], freqs_m)], axis=-1)
         ring = self._mtp_window.get(stage)
@@ -893,12 +938,12 @@ class Runner:
         block = int(x.shape[0])
         seqlen = int(main_x.shape[0])
         freqs_d = self._freqs_for(stage, "mtp")[start_pos + seqlen:start_pos + seqlen + block]
-        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].astype(mx.float32).T,
+        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].T,
                        self._dense[p + "q_norm.weight"], 1e-20)
-        q = (qr @ self._dense[p + "wq_b.weight"].astype(mx.float32).T).reshape(
+        q = (qr @ self._dense[p + "wq_b.weight"].T).reshape(
             block, n_heads, head_dim)
         q = mx.concatenate([q[..., :-rd], F.apply_rotary(q[..., -rd:], freqs_d)], axis=-1)
-        kv_new = x.astype(mx.float32) @ self._dense[p + "wkv.weight"].astype(mx.float32).T
+        kv_new = x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
         kv_new = mx.concatenate(
             [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs_d)], axis=-1)
         # write single main_kv row (decode seqlen==1) into ring at start_pos
@@ -918,7 +963,7 @@ class Runner:
         og = out.reshape(block, o_groups, -1)
         og = mx.einsum("sgd,grd->sgr", og.astype(mx.float32), wo_a.astype(mx.float32))
         return (og.reshape(block, -1).astype(mx.float32)
-                @ self._dense[p + "wo_b.weight"].astype(mx.float32).T)
+                @ self._dense[p + "wo_b.weight"].T)
 
     def _snapshot_caches(self) -> dict:
         return {

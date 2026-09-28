@@ -17,6 +17,9 @@ on lookup (#26 cache serves raw rows).
 from __future__ import annotations
 
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import mlx.core as mx
@@ -57,8 +60,19 @@ def _check_e4m3_table() -> None:
 _check_e4m3_table()
 
 
+_U8M0_LUT: np.ndarray | None = None
+
+
 def decode_u8m0(raw: np.ndarray) -> np.ndarray:
     """ue8m0 bytes -> float32 powers of two."""
+    global _U8M0_LUT
+    if raw.dtype == np.uint8:
+        if _U8M0_LUT is None:
+            bits = np.arange(256, dtype=np.int32)
+            lut = np.exp2(bits - 127)
+            lut[0xFF] = np.nan
+            _U8M0_LUT = lut.astype(np.float32)
+        return _U8M0_LUT[raw]
     bits = raw.astype(np.int32)
     out = np.exp2(bits - 127).astype(np.float32)
     out[bits == 0xFF] = np.nan
@@ -96,15 +110,23 @@ def dequant_fp4_rowmajor(packed: np.ndarray, scales: np.ndarray) -> np.ndarray:
     return vals
 
 
+_FD_CACHE: dict[tuple[str, str], int] = {}
+_FD_LOCK = threading.Lock()
+
+
 def read_bytes(model_root: Path, shard: str, start: int, end: int) -> bytes:
     from deepseeker.ssd_policy import open_backing_file
 
     size = end - start
-    fd = open_backing_file(model_root, shard)
-    try:
-        data = os.pread(fd, size, start)
-    finally:
-        os.close(fd)
+    key = (str(model_root), shard)
+    fd = _FD_CACHE.get(key)
+    if fd is None:
+        with _FD_LOCK:
+            fd = _FD_CACHE.get(key)
+            if fd is None:
+                fd = open_backing_file(model_root, shard)
+                _FD_CACHE[key] = fd
+    data = os.pread(fd, size, start)
     if len(data) != size:
         raise RuntimeError(f"short read {shard}@{start}")
     return data
@@ -119,12 +141,27 @@ class ExpertLoader:
         self._by_name = by_name
         self._metal_kernel = None
         self._metal_lut = None
+        self._metal_kernel_bf16 = None
+        self._io_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="expert-io")
+        self.io_s = 0.0
+        self.dequant_s = 0.0
+        self.eval_s = 0.0
+        self.bytes_read = 0
+        self.load_calls = 0
+        self.eval_times: list[float] = []
+        self.batch_sizes: list[int] = []
 
     def _kernel(self):
         if self._metal_kernel is None:
             from deepseeker.metal_fp4 import _kernel_fn
             self._metal_kernel, self._metal_lut = _kernel_fn()
         return self._metal_kernel, self._metal_lut
+
+    def _kernel_bf16(self):
+        if self._metal_kernel_bf16 is None:
+            from deepseeker.metal_fp4 import _kernel_bf16_fn
+            self._metal_kernel_bf16, self._metal_lut = _kernel_bf16_fn()
+        return self._metal_kernel_bf16, self._metal_lut
 
     def _tensor(self, name: str) -> tuple[np.ndarray, tuple[int, ...]]:
         entry = self._by_name[name]
@@ -142,22 +179,26 @@ class ExpertLoader:
 
     def _dequant_metal(self, wdata: bytes, sdata: bytes,
                        rows: int, pair_cols: int) -> mx.array:
-        """fp4 bytes -> bf16 on GPU (Metal LUT kernel; ~10x numpy)."""
+        """fp4 bytes -> bf16 on GPU (Metal LUT kernel; ~10x numpy).
+
+        Stores bf16 directly (no f32 intermediate) -- bit-identical to
+        `.astype(mx.bfloat16)` and ~1.7x faster with ~5x less write traffic.
+        """
         from deepseeker.metal_fp4 import decode_scales_u8m0
 
         n = rows * pair_cols * 2
-        kernel, lut = self._kernel()
+        kernel, lut = self._kernel_bf16()
         mp = mx.array(np.frombuffer(wdata, dtype=np.uint8))
         scales = decode_scales_u8m0(sdata)
         ms = mx.array(np.ascontiguousarray(scales, dtype=np.float32))
         outs = kernel(
             inputs=[mp, ms, lut],
             output_shapes=[(n,)],
-            output_dtypes=[mx.float32],
+            output_dtypes=[mx.bfloat16],
             grid=(n, 1, 1),
             threadgroup=(min(n, 256), 1, 1),
         )
-        return outs[0].reshape(rows, pair_cols * 2).astype(mx.bfloat16)
+        return outs[0].reshape(rows, pair_cols * 2)
 
     def load_expert(self, layer: int, expert: int, prefix: str = "layers") -> dict[str, mx.array]:
         """Dequantized {w1, w2, w3} bf16 arrays with scales folded in.
@@ -165,16 +206,17 @@ class ExpertLoader:
         prefix='layers' for backbone experts; prefix='mtp' uses mtp.{layer}.ffn.
         Parallel I/O for the three tensors, Metal dequant on GPU.
         """
-        from concurrent.futures import ThreadPoolExecutor
-
         roles = ("w1", "w2", "w3")
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            parts = list(pool.map(
-                lambda r: self._read_role(layer, expert, prefix, r), roles))
+        t0 = time.perf_counter()
+        parts = list(self._io_pool.map(
+            lambda r: self._read_role(layer, expert, prefix, r), roles))
         out: dict[str, mx.array] = {}
         for role, wdata, sdata, (rows, pair_cols) in parts:
             out[role] = self._dequant_metal(wdata, sdata, rows, pair_cols)
         mx.eval(list(out.values()))
+        self.io_s += time.perf_counter() - t0
+        self.bytes_read += sum(len(w) + len(s) for _, w, s, _ in parts)
+        self.load_calls += 1
         return out
 
     def load_experts_parallel(self, specs: list[tuple[int, int, str]], workers: int = 8) -> dict[tuple[str, int, int], dict[str, mx.array]]:
@@ -186,7 +228,6 @@ class ExpertLoader:
         """
         if not specs:
             return {}
-        from concurrent.futures import ThreadPoolExecutor
 
         def _read(spec: tuple[int, int, str]):
             layer, expert, prefix = spec
@@ -196,12 +237,9 @@ class ExpertLoader:
             ]
             return (prefix, layer, expert), parts
 
-        workers = max(1, min(workers, len(specs)))
-        if workers == 1:
-            reads = [_read(s) for s in specs]
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                reads = list(pool.map(_read, specs))
+        t0 = time.perf_counter()
+        reads = list(self._io_pool.map(_read, specs))
+        t1 = time.perf_counter()
         # Dequant all experts first (lazy kernels), one eval at the end so
         # Metal command buffers can batch instead of syncing per expert.
         out: dict[tuple[str, int, int], dict[str, mx.array]] = {}
@@ -212,8 +250,19 @@ class ExpertLoader:
                 expert_out[role] = self._dequant_metal(wdata, sdata, rows, pair_cols)
                 pending.append(expert_out[role])
             out[key] = expert_out
+        t2 = time.perf_counter()
         if pending:
             mx.eval(pending)
+        t3 = time.perf_counter()
+        self.eval_times.append(t3 - t2)
+        self.batch_sizes.append(len(reads))
+        self.io_s += t1 - t0
+        self.dequant_s += t2 - t1
+        self.eval_s += t3 - t2
+        self.bytes_read += sum(
+            len(wdata) + len(sdata)
+            for _, parts in reads for _, wdata, sdata, _ in parts)
+        self.load_calls += 1
         return out
 
 
