@@ -11,8 +11,8 @@ custom packing), and write
 
 into a side payload file. Per expert the payload layout keeps the same
 merged-run shape as MXFP4: a contiguous uint32 weight run (w1, w2, w3),
-then a contiguous fp16 scale run, then a contiguous fp16 bias run. Two
-kinds per run keeps `pread`-direct loading节气 valid (one width per run).
+then a contiguous fp16 scale run, then a contiguous fp16 bias run. Three
+kinds per run keeps `pread`-direct loading valid (one width per run).
 
 Unconverted tensors keep their original shard entries; the Q3 model root
 symlinks the untouched shard files so every other tensor read stays

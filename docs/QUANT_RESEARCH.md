@@ -133,3 +133,31 @@ affine, layers 20-39} via model-manifest-q3.json) runs coherently:
 - the OAS/MBS block-scale refinement (finding 3) and an ABBA quality
   harness (route coverage + held-out generation + small PPL sample)
   remain open before promoting Q3 to default.
+
+### Quality gate result (scripts/quality_q3.py, batch 8 prompts x 24 steps)
+
+Greedy Q3 text (routed experts L20-39 at 3-bit, everything else FP4) replayed
+teacher-forced through the FP4 reference:
+
+    rank_mean=1.44  p50=1  p90=2  top1=0.848  top5=0.978  top32>=0.999
+
+- The FP4 reference itself put 84.8% of Q3 greedy tokens at rank 1 and
+  97.8% within its top-5, i.e. the reference model would have said these
+  tokens anyway. Well inside the accept band (the Anemll Q3 precedent was
+  ~+5% PPL at full conversion; a rank-mean of 1.44 corresponds to near-1
+  logit-window agreement).
+- Greedy free-run agreement vs FP4: mean per-step match 0.474, 1/8
+  sequences token-identical over 24 steps - divergence is compounding,
+  spread over the batch, as expected for a lossy variant; the rank metric
+  above is the acceptance signal, not token identity.
+- decode_bytes accounting (expert IO, identical prompts/steps/cap):
+  Q3 485.32 GiB vs FP4 528.31 GiB = x0.9187, matching the L20-39-only
+  mix ((20*15.48+20*18.8)/(40*18.8)=0.912). A full-checkpoint Q3
+  conversion would be x0.824 (-17.6%).
+- Caveat: absolute tok/s in this harness (0.09-0.54) is dominated by
+  expert-cache miss IO at cap 256 and page-cache warm state, not by
+  quantization compute; the bytes ratio is the reliable number.
+
+Note: harness must run prompts one at a time per loaded runner (see
+seq_generate in scripts/quality_q3.py); batched lockstep at n=8 thrashes
+the 256-slot expert cache (~75 s/step wall).
