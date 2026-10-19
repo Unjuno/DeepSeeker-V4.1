@@ -1,0 +1,61 @@
+{
+ "prompt": "Say hello.",
+ "prompt_tokens": 7,
+ "max_tokens": 8,
+ "block_size": 5,
+ "n_mtp_layers": 3,
+ "config": {
+  "dspark_target_layer_ids": [
+   37,
+   38,
+   39
+  ],
+  "dspark_n_activated_experts": 3,
+  "dspark_noise_token_id": 128799,
+  "expert_cap": 256
+ },
+ "baseline": {
+  "tokens": [
+   43,
+   4571,
+   2887,
+   304,
+   2507,
+   1613,
+   539,
+   43
+  ],
+  "text": "I'm going to say... \nI",
+  "timings": {
+   "prefill_s": 12.839582333006547,
+   "decode_s": 6.8336425829766085,
+   "steps_s": [
+    0.9567281250056112,
+    0.9264100000000326,
+    0.8850454579951474,
+    0.8874908750003669,
+    0.7937871249887394,
+    0.8118071249919012,
+    0.7942682919965591,
+    0.7781055829982506
+   ],
+   "tokens": 8,
+   "tok_s": 1.1706787270275039,
+   "decode_io_s": 2.893765625936794,
+   "decode_pack_s": 0.848153309445479,
+   "decode_upload_s": 0.0,
+   "decode_bytes": 29535805440,
+   "decode_expert_loads": 320,
+   "decode_engram_s": 0.5929922069772147,
+   "engram_page_hits": 0,
+   "engram_page_misses": 792,
+   "engram_bytes_read": 3244032,
+   "engram_rows": 384,
+   "expert_loads": 2771,
+   "expert_cache_hits": 3120,
+   "expert_evictions": 2515,
+   "expert_hit_rate": 0.5296214564590053
+  },
+  "wall_s": 19.676821500004735
+ }
+}

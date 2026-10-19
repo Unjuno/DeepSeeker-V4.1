@@ -96,3 +96,6 @@ profiles/runs/sustained/*
 !profiles/runs/sustained/*.log
 !profiles/runs/sustained/*.md
 !profiles/runs/sustained/README.md
+
+# Session scratch / raw benchmark logs (summarized in docs/FLOWMAP.md)
+/work/

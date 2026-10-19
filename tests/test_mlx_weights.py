@@ -78,10 +78,31 @@ def test_expert_loader_real_shapes():
     loader = ExpertLoader(MODEL_ROOT, MANIFEST)
     expert = loader.load_expert(5, 7)
     assert set(expert) == {"w1", "w2", "w3"}
-    assert expert["w1"].shape == (2304, 5120)
-    assert expert["w1"].dtype == mx.bfloat16
-    mx.eval(expert["w1"])
-    assert bool((expert["w1"] != 0).any().item())
+    w, scales = expert["w1"]
+    assert w.shape == (2304, 640) and w.dtype == mx.uint32   # 5120 / 8
+    assert scales.shape == (2304, 160) and scales.dtype == mx.uint8  # / 32
+    assert expert["w2"][0].shape == (5120, 288)             # 2304 / 8
+    mx.eval(w, scales)
+    assert bool((w != 0).any().item())
+
+
+def test_packed_qmm_matches_staged_bf16_gemm():
+    """quantized_matmul on packed bytes == dequant-then-bf16-GEMM."""
+    from deepseeker.mlx_forward import qmm
+
+    loader = ExpertLoader(MODEL_ROOT, MANIFEST)
+    _, wdata, sdata, (rows, pair_cols) = loader._read_role(5, 7, "layers", "w1")
+    packed = loader._pack_expert(wdata, sdata, rows, pair_cols)
+    staged = loader._dequant_metal(wdata, sdata, rows, pair_cols)
+    mx.eval(*packed, staged)
+
+    rng = np.random.default_rng(4)
+    x = mx.array(rng.standard_normal((3, pair_cols * 2)).astype(np.float32))
+    ref = x @ staged.astype(mx.float32).T
+    got = qmm(x, packed)
+    mx.eval(ref, got)
+    a, b = np.asarray(ref), np.asarray(got)
+    assert np.max(np.abs(a - b)) <= 1e-5 * np.max(np.abs(a))
 
 
 def test_dense_loader_spot():

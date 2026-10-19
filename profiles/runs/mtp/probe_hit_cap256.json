@@ -1,0 +1,111 @@
+{
+  "tok_s": 1.0682471086376757,
+  "decode_s": 7.488903958001174,
+  "hit_rate": 0.5499856774563162,
+  "steps": [
+    {
+      "step": 0,
+      "n_requested": 240,
+      "loads": 238,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 324.15562703681644,
+      "deq_ms": 110.24787498172373,
+      "eval_ms": 0.3988310054410249,
+      "mb_read": 4267.265625,
+      "load_calls": 40,
+      "overlap_prev": 0
+    },
+    {
+      "step": 1,
+      "n_requested": 240,
+      "loads": 190,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 379.5705410448136,
+      "deq_ms": 86.11829299479723,
+      "eval_ms": 0.34129594860132784,
+      "mb_read": 3406.640625,
+      "load_calls": 40,
+      "overlap_prev": 50
+    },
+    {
+      "step": 2,
+      "n_requested": 240,
+      "loads": 212,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 381.11174998630304,
+      "deq_ms": 95.69895899039693,
+      "eval_ms": 0.33403899578843266,
+      "mb_read": 3801.09375,
+      "load_calls": 40,
+      "overlap_prev": 28
+    },
+    {
+      "step": 3,
+      "n_requested": 240,
+      "loads": 206,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 407.0642539882101,
+      "deq_ms": 91.1509160650894,
+      "eval_ms": 0.33157996949739754,
+      "mb_read": 3693.515625,
+      "load_calls": 40,
+      "overlap_prev": 34
+    },
+    {
+      "step": 4,
+      "n_requested": 240,
+      "loads": 196,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 351.87754296930507,
+      "deq_ms": 88.87491696805228,
+      "eval_ms": 0.33074599923565984,
+      "mb_read": 3514.21875,
+      "load_calls": 40,
+      "overlap_prev": 44
+    },
+    {
+      "step": 5,
+      "n_requested": 240,
+      "loads": 199,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 344.14025307341944,
+      "deq_ms": 90.36799395107664,
+      "eval_ms": 0.33608695957809687,
+      "mb_read": 3568.0078125,
+      "load_calls": 40,
+      "overlap_prev": 41
+    },
+    {
+      "step": 6,
+      "n_requested": 240,
+      "loads": 162,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 329.526872956194,
+      "deq_ms": 74.21674599754624,
+      "eval_ms": 0.31779501296114177,
+      "mb_read": 2904.609375,
+      "load_calls": 40,
+      "overlap_prev": 78
+    },
+    {
+      "step": 7,
+      "n_requested": 240,
+      "loads": 168,
+      "hits": 240,
+      "evict": 0,
+      "io_ms": 301.71666901151184,
+      "deq_ms": 77.63841502310243,
+      "eval_ms": 0.31612398743163794,
+      "mb_read": 3012.1875,
+      "load_calls": 40,
+      "overlap_prev": 72
+    }
+  ]
+}

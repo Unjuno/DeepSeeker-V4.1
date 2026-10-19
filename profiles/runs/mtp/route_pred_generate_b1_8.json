@@ -1,0 +1,46 @@
+{
+  "scope": "canonical Runner.generate; prediction counters reset after prefill",
+  "prompt_tokens": 7,
+  "output_tokens": [
+    43,
+    4571,
+    2887,
+    304,
+    2507,
+    1613,
+    1,
+    0
+  ],
+  "golden": [
+    43,
+    4571,
+    2887,
+    304,
+    2507,
+    1613,
+    539,
+    43
+  ],
+  "match_golden": false,
+  "decode_s": 10.576930749928579,
+  "tok_s": 0.7563630876617038,
+  "route_events": 320,
+  "predictions": {
+    "xin": {
+      "samples": 320,
+      "top1_hits": 5,
+      "top1_rate": 0.015625,
+      "top2_hits": 18,
+      "top2_rate": 0.05625,
+      "one_expert_speculative_bytes_factor": 1.984375
+    },
+    "xpre": {
+      "samples": 320,
+      "top1_hits": 3,
+      "top1_rate": 0.009375,
+      "top2_hits": 12,
+      "top2_rate": 0.0375,
+      "one_expert_speculative_bytes_factor": 1.990625
+    }
+  }
+}

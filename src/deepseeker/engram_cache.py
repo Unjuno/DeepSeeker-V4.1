@@ -14,6 +14,7 @@ assembled rows against direct preads.
 from __future__ import annotations
 
 import concurrent.futures
+import mmap
 import os
 from collections import OrderedDict
 from pathlib import Path
@@ -34,6 +35,7 @@ class EngramRowCache:
         page_bytes: int = 4096,
         max_workers: int = 4,
         reader=None,
+        direct: bool = False,
     ) -> None:
         if capacity_bytes < page_bytes:
             raise ValueError("capacity must hold at least one page")
@@ -43,6 +45,8 @@ class EngramRowCache:
         self._refs = refs
         self._capacity = capacity_bytes
         self._page = page_bytes
+        self._direct = direct
+        self._mmaps: dict[str, mmap.mmap] = {}
         self._reader = reader or self._pread
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self._pages: OrderedDict[tuple[str, int], bytes] = OrderedDict()
@@ -51,6 +55,7 @@ class EngramRowCache:
         self.page_misses = 0
         self.bytes_read = 0
         self.rows_served = 0
+        self.direct_rows = 0
 
     def _pread(self, shard: str, start: int, size: int) -> bytes:
         from deepseeker.ssd_policy import open_backing_file
@@ -92,6 +97,8 @@ class EngramRowCache:
         this call. Freshly fetched pages count as misses even though the
         subsequent slice finds them present.
         """
+        if self._direct:
+            return self._fetch_direct(layer, row_ids)
         ref = self._refs[layer]
         resident_before = set(self._pages)
         needed: dict[tuple[str, int], None] = {}
@@ -129,6 +136,54 @@ class EngramRowCache:
                 if key in resident_before:
                     self.page_hits += 1
         self.rows_served += len(row_ids)
+        return out
+
+    def _mm(self, shard: str) -> mmap.mmap:
+        """Process-wide read-only mapping of one shard (lazily opened)."""
+        mm = self._mmaps.get(shard)
+        if mm is None:
+            from deepseeker.ssd_policy import open_backing_file
+
+            fd = open_backing_file(self._root, shard)
+            try:
+                mm = mmap.mmap(fd, 0, access=mmap.ACCESS_READ)
+            finally:
+                os.close(fd)
+            self._mmaps[shard] = mm
+        return mm
+
+    def _fetch_direct(self, layer: int,
+                      row_ids: list[int]) -> list[tuple[bytes, bytes]]:
+        """Row-granular read straight out of a resident mapping.
+
+        The engram tables are ~189 GiB and ``engram_num_embeddings`` is
+        384 061 688, so a decode batch's row ids are effectively uniform --
+        page reuse never materialises (hits/misses are byte-identical from
+        256 MiB to 8 GiB). The page cache therefore only adds its own cost:
+        one ThreadPool submit + pread + ``as_completed`` + per-page chunk
+        join per row, ~1.8k times per call, which measured 9.88 s of a
+        17.61 s decode. ``bytes(mm[a:b])`` replaces all of that with a
+        kernel page fault plus a memcpy. Counters keep their meaning: pages
+        spanned count as misses, range bytes as bytes_read.
+        """
+        ref = self._refs[layer]
+        out: list[tuple[bytes, bytes]] = []
+        pages = 0
+        nbytes = 0
+        for row_id in row_ids:
+            info = row_ranges(ref, row_id)
+            parts = []
+            for name in ("weight", "scale"):
+                shard = info[name]["shard"]
+                start, end = info[name]["range"]
+                pages += (end - 1) // self._page - start // self._page + 1
+                nbytes += end - start
+                parts.append(bytes(self._mm(shard)[start:end]))
+            out.append((parts[0], parts[1]))
+        self.page_misses += pages
+        self.bytes_read += nbytes
+        self.rows_served += len(row_ids)
+        self.direct_rows += len(row_ids)
         return out
 
     def _get_page_uncached(self, shard: str, page: int) -> None:
@@ -192,10 +247,14 @@ class EngramRowCache:
             "bytes_read": self.bytes_read,
             "rows_served": self.rows_served,
             "bytes_resident": self._page_bytes_resident,
+            "direct_rows": self.direct_rows,
         }
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=True, cancel_futures=True)
+        for mm in self._mmaps.values():
+            mm.close()
+        self._mmaps.clear()
 
 
 def access_stream(num_rows: int, ops: int, seed: int, hotspot_frac: float = 0.2) -> list[int]:

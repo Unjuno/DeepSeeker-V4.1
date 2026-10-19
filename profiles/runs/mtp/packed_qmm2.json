@@ -1,0 +1,41 @@
+{
+ "prompt": "Say hello.",
+ "prompt_tokens": 7,
+ "max_tokens": 8,
+ "block_size": 5,
+ "n_mtp_layers": 3,
+ "config": {
+  "dspark_target_layer_ids": [
+   37,
+   38,
+   39
+  ],
+  "dspark_n_activated_experts": 3,
+  "dspark_noise_token_id": 128799,
+  "expert_cap": 256
+ },
+ "baseline": {
+  "tokens": [
+   43,
+   4571,
+   2887,
+   304,
+   2507,
+   1613,
+   539,
+   43
+  ],
+  "text": "I'm going to say... \nI",
+  "timings": {
+   "prefill_s": 16.65945258300053,
+   "decode_s": 7.769244625029387,
+   "tokens": 8,
+   "tok_s": 1.0297011339078206,
+   "expert_loads": 2771,
+   "expert_cache_hits": 3120,
+   "expert_evictions": 2515,
+   "expert_hit_rate": 0.5296214564590053
+  },
+  "wall_s": 24.433439040993107
+ }
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "top_k": 6,
+    "pass": 0,
+    "coverage": 1.0,
+    "tok_s": 0.6387258944704912,
+    "decode_s": 200.39895220799372,
+    "bytes": 385657528320,
+    "wall_s": 237.4696547500207,
+    "loads": 640,
+    "flip": 0.0,
+    "kl": 0.0,
+    "margin": 0.0,
+    "forced": false,
+    "bytes_speedup": 1.0,
+    "tok_speedup": 1.0,
+    "reference_top_k": 6
+  },
+  {
+    "top_k": 1,
+    "pass": 1,
+    "coverage": 1.0,
+    "tok_s": 2.735900280887751,
+    "decode_s": 46.785330918006366,
+    "bytes": 84320870400,
+    "wall_s": 68.50556920800591,
+    "loads": 640,
+    "kl": 6.036155611276627,
+    "flip": 0.890625,
+    "margin": -0.6956191509962082,
+    "forced": true,
+    "bytes_speedup": 4.573690078037904,
+    "tok_speedup": 4.2833714815270385,
+    "reference_top_k": 6
+  }
+]

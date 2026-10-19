@@ -1,0 +1,17 @@
+[
+  {
+    "kind": "variant",
+    "knobs": "k=6",
+    "budget": null,
+    "coverage": 1.0,
+    "bytes": 383213445120,
+    "tok_s": 1.5004198428406215,
+    "rank_mean": 1.0,
+    "rank_p50": 1,
+    "top1": 1.0,
+    "top5": 1.0,
+    "top32": 1.0,
+    "wall_s": 238.95273933399585,
+    "bytes_speedup": 1.0
+  }
+]

@@ -1,0 +1,70 @@
+{
+  "batch": 1,
+  "prompt_tokens": 7,
+  "max_tokens": 8,
+  "config": {
+    "expert_cap": 256,
+    "expert_policy": "lru",
+    "expert_pin": 0,
+    "batch_prefetch": false,
+    "union_budget": 0,
+    "top_k": 0,
+    "no_shared": false,
+    "hc_iters": 0,
+    "window": 0,
+    "attn_bf16": false,
+    "skip_every": 0,
+    "skip_block": 0,
+    "no_engram": false,
+    "head_bf16": false,
+    "proj_bf16": false,
+    "keep_layers": -1,
+    "head_quant": false,
+    "head_vocab": 0,
+    "scale_inv_head": false,
+    "head_compose": true,
+    "step_cpu": true,
+    "moe_pipeline": false,
+    "indexer_gpu_topk": false,
+    "dedup": true
+  },
+  "route_coverage": 1.0,
+  "result": {
+    "batch": 1,
+    "prefill_s": 20.557163374964148,
+    "decode_s": 18.721860376070254,
+    "steps_s": [
+      3.665857542073354,
+      2.5650934170698747,
+      2.2417936249403283,
+      2.4646701669553295,
+      2.1716166669502854,
+      1.85489208297804,
+      1.8002020000712946,
+      1.957734875031747
+    ],
+    "tokens": 8,
+    "tok_s": 0.4273079618853141,
+    "per_seq_tok_s": 0.4273079618853141,
+    "decode_io_s": 6.927509242086671,
+    "decode_bytes": 31867084800,
+    "decode_load_calls": 320,
+    "expert_cache_hits": 1920,
+    "expert_loads": 1695,
+    "route_coverage": 1.0,
+    "top_logits": [],
+    "outputs": [
+      [
+        43,
+        4571,
+        2887,
+        304,
+        2507,
+        1613,
+        1,
+        0
+      ]
+    ]
+  },
+  "wall_s": 39.28953912493307
+}

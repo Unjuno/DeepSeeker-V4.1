@@ -20,6 +20,7 @@ from transformers import AutoTokenizer
 from deepseeker import mlx_forward as F
 from deepseeker.baseline import load_json
 from deepseeker.mlx_runner import Runner
+from deepseeker.mlx_weights import dequant_packed
 
 GOLDEN = [43, 4571, 2887, 304, 2507, 1613, 539, 43]
 
@@ -29,6 +30,14 @@ def phase_wrap(r: Runner, times: dict) -> None:
     orig_moe = r.moe
     orig_hc = F.hc_mixes
     orig_head = r.head_logits
+    orig_pf = r.prefetch_experts
+
+    def pf(*a, **k):
+        t0 = time.perf_counter()
+        out = orig_pf(*a, **k)
+        times["pf"] += time.perf_counter() - t0
+        times["n_pf"] += 1
+        return out
 
     def att(*a, **k):
         t0 = time.perf_counter()
@@ -66,19 +75,21 @@ def phase_wrap(r: Runner, times: dict) -> None:
     r.moe = moe
     r.head_logits = head
     F.hc_mixes = hc
+    r.prefetch_experts = pf
     # restore later
-    r._orig = (orig_att, orig_moe, orig_hc, orig_head)
+    r._orig = (orig_att, orig_moe, orig_hc, orig_head, orig_pf)
 
 
 def restore(r: Runner) -> None:
     o = getattr(r, "_orig", None)
     if not o:
         return
-    orig_att, orig_moe, orig_hc, orig_head = o
+    orig_att, orig_moe, orig_hc, orig_head, orig_pf = o
     r.attention = orig_att
     r.moe = orig_moe
     r.head_logits = orig_head
     F.hc_mixes = orig_hc
+    r.prefetch_experts = orig_pf
 
 
 def bf16_moe() -> None:
@@ -155,8 +166,8 @@ def main() -> int:
         # phase profile: prefill once fresh is expensive; reuse runner
         # Reset by reconstructing is expensive. Profile decode-only after warm.
         # New sequence start_pos=0 does full prefill again — still do it for clean phases.
-        times = {"att": 0.0, "moe": 0.0, "hc": 0.0, "head": 0.0,
-                 "n_att": 0, "n_moe": 0, "n_hc": 0, "n_head": 0}
+        times = {"att": 0.0, "moe": 0.0, "hc": 0.0, "head": 0.0, "pf": 0.0,
+                 "n_att": 0, "n_moe": 0, "n_hc": 0, "n_head": 0, "n_pf": 0}
         phase_wrap(r, times)
         # clear caches states
         r._window.clear()
@@ -171,7 +182,8 @@ def main() -> int:
             times[k] = 0.0 if isinstance(v, float) else 0
 
         # decode 8 steps with phases
-        decode_phases = {"att": 0.0, "moe": 0.0, "hc": 0.0, "head": 0.0}
+        decode_phases = {"att": 0.0, "moe": 0.0, "hc": 0.0, "head": 0.0,
+                         "pf": 0.0}
         t0 = time.perf_counter()
         out_toks = []
         for i in range(8):
@@ -180,7 +192,9 @@ def main() -> int:
             logits = r.forward([nxt], len(ids) + i)
             mx.eval(logits)
         decode_dt = time.perf_counter() - t0
-        decode_phases = {k: times[k] for k in ("att", "moe", "hc", "head")}
+        decode_phases = {k: times[k] for k in ("att", "moe", "hc", "head", "pf")}
+        # pf runs inside moe_layer, so the moe bucket includes it.
+        decode_phases["moe"] -= decode_phases["pf"]
         restore(r)
         print(f"PHASE prefill={prefill_dt:.1f}s phases={prefill_phases}", flush=True)
         print(f"PHASE decode={decode_dt:.3f}s toks={out_toks} "
@@ -189,7 +203,7 @@ def main() -> int:
         residual = decode_dt - sum(decode_phases.values())
         print(f"PHASE residual_ms={residual*1e3:.1f} "
               f"(n_att={times['n_att']} n_moe={times['n_moe']} n_hc={times['n_hc']} "
-              f"n_head={times['n_head']})", flush=True)
+              f"n_head={times['n_head']} n_pf={times['n_pf']})", flush=True)
         result["phase"] = {
             "prefill_s": prefill_dt,
             "decode_s": decode_dt,
@@ -223,7 +237,8 @@ def main() -> int:
                 mask = idx_np == expert
                 rows = np.where(mask.any(axis=1))[0]
                 cols = [int(np.where(mask[r])[0][0]) for r in rows]
-                w1, w3, w2down = expert_fn(int(expert))
+                w1, w3, w2down = (dequant_packed(*p)
+                                  for p in expert_fn(int(expert)))
                 xr = xb[mx.array(rows)]
                 g = (xr @ w1.T).astype(mx.float32)
                 u = (xr @ w3.T).astype(mx.float32)

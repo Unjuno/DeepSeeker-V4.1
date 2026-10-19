@@ -1,0 +1,79 @@
+{
+ "prompt": "Say hello.",
+ "prompt_tokens": 7,
+ "max_tokens": 24,
+ "block_size": 5,
+ "n_mtp_layers": 3,
+ "config": {
+  "dspark_target_layer_ids": [
+   37,
+   38,
+   39
+  ],
+  "dspark_n_activated_experts": 3,
+  "dspark_noise_token_id": 128799,
+  "expert_cap": 256,
+  "expert_policy": "lru"
+ },
+ "spec": {
+  "tokens": [
+   43,
+   4571,
+   2887,
+   304,
+   2507,
+   1613,
+   539,
+   43,
+   4571,
+   2887,
+   304,
+   366,
+   3495,
+   304,
+   539,
+   9854,
+   36490,
+   201,
+   9854,
+   1,
+   0,
+   5,
+   539,
+   9854
+  ],
+  "text": "I'm going to say... \nI'm going to be able to \n```python\n```<\uff5cend\u2581of\u2581sentence\uff5c><\uff5cbegin\u2581of\u2581sentence\uff5c># \n```",
+  "timings": {
+   "prefill_s": 13.357031166000525,
+   "decode_s": 54.14957833298831,
+   "tokens": 24,
+   "tok_s": 0.44321674773557795
+  },
+  "spec": {
+   "proposed": 50,
+   "accepted": 4,
+   "steps": 10,
+   "draft_s": 4.435753333964385,
+   "verify_s": 30.602913790993625,
+   "target_s": 20.100322460901225,
+   "rollbacks": 10,
+   "full_accepts": 0,
+   "draft_hit": [
+    3,
+    1,
+    0,
+    0,
+    0
+   ],
+   "draft_n": [
+    10,
+    3,
+    1,
+    0,
+    0
+   ],
+   "acceptance": 0.08
+  },
+  "wall_s": 68.90118324998184
+ }
+}

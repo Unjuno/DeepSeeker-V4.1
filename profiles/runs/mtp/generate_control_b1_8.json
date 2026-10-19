@@ -1,0 +1,26 @@
+{
+  "scope": "canonical Runner.generate; route predictor disabled",
+  "output_tokens": [
+    43,
+    4571,
+    2887,
+    304,
+    2507,
+    1613,
+    1,
+    0
+  ],
+  "golden": [
+    43,
+    4571,
+    2887,
+    304,
+    2507,
+    1613,
+    539,
+    43
+  ],
+  "match_golden": false,
+  "decode_s": 8.779996789991856,
+  "tok_s": 0.9111620643323061
+}

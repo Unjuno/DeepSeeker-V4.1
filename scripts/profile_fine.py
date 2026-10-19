@@ -75,18 +75,18 @@ def main() -> int:
                 cols = [int(np.where(mask[r])[0][0]) for r in rows]
                 tf = time.perf_counter()
                 w1, w3, w2down = expert_fn(int(expert))
-                mx.eval(w1, w3, w2down)
+                mx.eval(*w1, *w3, *w2down)
                 stats["fetch"] += time.perf_counter() - tf
                 stats["n_fetch"] += 1
                 tg = time.perf_counter()
                 xr = x[mx.array(rows)]
-                g = xr.astype(mx.float32) @ w1.astype(mx.float32).T
-                u = xr.astype(mx.float32) @ w3.astype(mx.float32).T
+                g = F.qmm(xr.astype(mx.float32), w1)
+                u = F.qmm(xr.astype(mx.float32), w3)
                 g = mx.minimum(g, limit)
                 u = mx.clip(u, -limit, limit)
                 h = (g / (1.0 + mx.exp(-g))) * u
                 rw = mx.array(w_np[rows, cols], dtype=mx.float32).reshape(-1, 1)
-                contrib = (h * rw) @ w2down.astype(mx.float32).T
+                contrib = F.qmm(h * rw, w2down)
                 out_arr = out_arr.at[mx.array(rows)].add(contrib)
                 mx.eval(contrib)
                 stats["gemm"] += time.perf_counter() - tg
