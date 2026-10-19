@@ -1578,8 +1578,11 @@ class Runner:
         """
         import sys as _sys
 
-        snap = str(Path(__file__).resolve().parents[2] / "upstream"
-                   / "DeepSeek-V4.1-Flash" / "inference")
+        snap = str(Path(__file__).resolve().parents[2] / "upstream" / (
+            "DeepSeek-V4.1-Flash-1017"
+            if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+            else "DeepSeek-V4.1-Flash"
+        ) / "inference")
         if snap not in _sys.path:
             _sys.path.insert(0, snap)
         import engram as _up

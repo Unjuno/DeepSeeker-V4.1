@@ -86,11 +86,15 @@ def main() -> int:
               flush=True)
 
     snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash"
+    if os.environ.get("DEEPSEEKER_VARIANT") == "1017":
+        snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash-1017"
     revision = load_json(snapshot / "DEEPSEEKER_UPSTREAM.json")["resolved_revision"]
     manifest = load_json(
         REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / revision / "model-manifest.json")
     config = load_json(snapshot / "inference" / "config.json")
-    model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    model_root = REPO_ROOT / "models" / snapshot.name
+    if not model_root.exists():
+        model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
     tokenizer = AutoTokenizer.from_pretrained(str(model_root))
 
     prompt = encode_messages([{"role": "user", "content": args.prompt}], "chat")

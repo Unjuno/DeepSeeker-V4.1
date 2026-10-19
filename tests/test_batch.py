@@ -8,6 +8,7 @@ pinned upstream reference and is skipped when those are missing.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -163,6 +164,13 @@ def test_engram_batched_hashes_match_per_row_queries():
     """Batched lookback must read each sequence's own ngram cache row."""
     pytest.importorskip("torch", reason="torch not installed")
     pytest.importorskip("transformers", reason="transformers not installed")
+    model_root = REPO_ROOT / "models" / (
+        "DeepSeek-V4.1-Flash-1017"
+        if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+        else "DeepSeek-V4.1-Flash"
+    )
+    if not (model_root / "tokenizer_config.json").exists():
+        pytest.skip("model checkpoint not downloaded")
     upstream = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "inference"
     if not (upstream / "engram.py").exists():
         pytest.skip("pinned upstream reference code not fetched")
@@ -171,7 +179,7 @@ def test_engram_batched_hashes_match_per_row_queries():
     nrows = 3
     r = Runner.__new__(Runner)
     r._config = cfg
-    r._root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    r._root = model_root
     r._hash_bsz = nrows
     r._hash_row = 0
 

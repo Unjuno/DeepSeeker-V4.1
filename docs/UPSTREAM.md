@@ -6,6 +6,14 @@ DeepSeeker currently treats the official Hugging Face model repository as the ca
 
 - https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
 - local reference implementation: `inference/`
+- 2026-10 refresh checkpoint: https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017
+
+`DeepSeek-V4.1-Flash-1017` (revision `1bae0e10…`) is the current optimization target.
+It has an identical tensor layout to `DeepSeek-V4.1-Flash` (96,085 tensors, same
+shard assignment, same total bytes), so the same manifest pipeline and runner paths
+apply. Fetch its reference code with
+`python scripts/fetch_upstream.py --repo-id deepseek-ai/DeepSeek-V4.1-Flash-1017`
+and switch runners/benchmarks to it with `DEEPSEEKER_VARIANT=1017`.
 
 At project bootstrap time the upstream repository is licensed under MIT.
 

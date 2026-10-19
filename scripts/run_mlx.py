@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -87,11 +88,16 @@ def main() -> int:
     args = parser.parse_args()
 
     snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash"
+    if os.environ.get("DEEPSEEKER_VARIANT") == "1017":
+        snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash-1017"
     revision = load_json(snapshot / "DEEPSEEKER_UPSTREAM.json")["resolved_revision"]
     manifest = load_json(
         REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / revision / "model-manifest.json")
     config = load_json(snapshot / "inference" / "config.json")
-    model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    repo_short = snapshot.name
+    model_root = REPO_ROOT / "models" / repo_short
+    if not model_root.exists():
+        model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
     tokenizer = AutoTokenizer.from_pretrained(str(model_root))
 
     request_id = f"mlx-{int(time.time())}"

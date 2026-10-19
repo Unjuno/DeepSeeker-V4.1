@@ -83,6 +83,7 @@ def test_build_manifest_accounting_and_ranges():
     header = json.loads(raw.decode("utf-8"))
     weight_map = {k: "shard.safetensors" for k in entries}
     manifest = builder.build_manifest(
+        "deepseek-ai/DeepSeek-V4.1-Flash",
         "rev",
         weight_map,
         {"shard.safetensors": (header, header_len, 100000)},
@@ -120,8 +121,8 @@ def test_build_manifest_twice_identical_modulo_timestamp():
         "network_bytes": 1,
         "index_bytes": 2,
     }
-    first = builder.build_manifest("rev", **kwargs)
-    second = builder.build_manifest("rev", **kwargs)
+    first = builder.build_manifest("deepseek-ai/DeepSeek-V4.1-Flash", "rev", **kwargs)
+    second = builder.build_manifest("deepseek-ai/DeepSeek-V4.1-Flash", "rev", **kwargs)
     first.pop("generated_at_utc")
     second.pop("generated_at_utc")
     assert first == second

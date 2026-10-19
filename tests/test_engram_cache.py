@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,9 +15,17 @@ from deepseeker.baseline import load_json
 from deepseeker.engram import row_ranges, table_refs_from_manifest
 from deepseeker.engram_cache import EngramRowCache, access_stream
 
-MODEL_ROOT = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+MODEL_ROOT = REPO_ROOT / "models" / (
+        "DeepSeek-V4.1-Flash-1017"
+        if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+        else "DeepSeek-V4.1-Flash"
+    )
 REVISION = load_json(
-    REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
+    REPO_ROOT / "upstream" / (
+    "DeepSeek-V4.1-Flash-1017"
+    if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+    else "DeepSeek-V4.1-Flash"
+) / "DEEPSEEKER_UPSTREAM.json"
 )["resolved_revision"]
 MANIFEST = load_json(
     REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / REVISION / "model-manifest.json"
@@ -24,6 +33,11 @@ MANIFEST = load_json(
 REFS = table_refs_from_manifest(MANIFEST)
 
 
+WEIGHTS_PRESENT = any(MODEL_ROOT.glob("*.safetensors"))
+_needs_weights = pytest.mark.skipif(
+    not WEIGHTS_PRESENT, reason="model weights not downloaded")
+
+@_needs_weights
 def test_exact_rows_against_direct_reads():
     ref = REFS[1]
     cache = EngramRowCache(MODEL_ROOT, REFS, 64 * 1024**2, 4096)
@@ -57,6 +71,7 @@ def test_hit_rate_hotspot_vs_uniform():
         cache.shutdown()
 
 
+@_needs_weights
 def test_capacity_bounded():
     cache = EngramRowCache(MODEL_ROOT, REFS, 1 * 1024**2, 4096)
     try:

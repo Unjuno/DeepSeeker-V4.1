@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -22,14 +23,26 @@ from deepseeker.mlx_weights import (
     dequant_fp8_block,
 )
 
-MODEL_ROOT = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+MODEL_ROOT = REPO_ROOT / "models" / (
+        "DeepSeek-V4.1-Flash-1017"
+        if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+        else "DeepSeek-V4.1-Flash"
+    )
 REVISION = load_json(
-    REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
+    REPO_ROOT / "upstream" / (
+    "DeepSeek-V4.1-Flash-1017"
+    if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+    else "DeepSeek-V4.1-Flash"
+) / "DEEPSEEKER_UPSTREAM.json"
 )["resolved_revision"]
 MANIFEST = load_json(
     REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / REVISION / "model-manifest.json"
 )
 
+
+WEIGHTS_PRESENT = any(MODEL_ROOT.glob("*.safetensors"))
+_needs_weights = pytest.mark.skipif(
+    not WEIGHTS_PRESENT, reason="model weights not downloaded")
 
 def test_e4m3_table_spots():
     import torch
@@ -74,6 +87,7 @@ def test_fp4_rowmajor_matches_metal_kernel():
     )
 
 
+@_needs_weights
 def test_expert_loader_real_shapes():
     loader = ExpertLoader(MODEL_ROOT, MANIFEST)
     expert = loader.load_expert(5, 7)
@@ -86,6 +100,7 @@ def test_expert_loader_real_shapes():
     assert bool((w != 0).any().item())
 
 
+@_needs_weights
 def test_packed_qmm_matches_staged_bf16_gemm():
     """quantized_matmul on packed bytes == dequant-then-bf16-GEMM."""
     from deepseeker.mlx_forward import qmm
@@ -105,6 +120,7 @@ def test_packed_qmm_matches_staged_bf16_gemm():
     assert np.max(np.abs(a - b)) <= 1e-5 * np.max(np.abs(a))
 
 
+@_needs_weights
 def test_dense_loader_spot():
     loader = DenseLoader(MODEL_ROOT, MANIFEST)
     w = loader.load_one("layers.0.attn.wq_a.weight")

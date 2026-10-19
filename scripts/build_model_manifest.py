@@ -34,6 +34,14 @@ MANIFEST_SCHEMA = "deepseeker.model-manifest/v1"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPO_ID = "deepseek-ai/DeepSeek-V4.1-Flash"
 
+
+def repo_short(repo_id: str) -> str:
+    return repo_id.split("/")[-1]
+
+
+def upstream_root(repo_id: str) -> Path:
+    return REPO_ROOT / "upstream" / repo_short(repo_id)
+
 # Approximate bytes per element for sanity checks only. Encoded byte
 # sizes always come from safetensors data_offsets (authoritative).
 DTYPE_BYTES = {
@@ -51,8 +59,8 @@ DTYPE_BYTES = {
 }
 
 
-def pinned_revision() -> str | None:
-    manifest = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
+def pinned_revision(repo_id: str) -> str | None:
+    manifest = upstream_root(repo_id) / "DEEPSEEKER_UPSTREAM.json"
     if not manifest.exists():
         return None
     try:
@@ -327,6 +335,7 @@ STREAMABLE_SUBSYSTEMS = {"routed-expert", "mtp-expert"}
 
 
 def build_manifest(
+    repo_id: str,
     revision: str,
     weight_map: dict[str, str],
     shard_headers: dict[str, tuple[dict, int, int]],
@@ -419,7 +428,7 @@ def build_manifest(
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "upstream": {
-            "repo_id": REPO_ID,
+            "repo_id": repo_id,
             "revision": revision,
         },
         "generated_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -482,7 +491,7 @@ def summarize(manifest: dict) -> str:
     lines = [
         "# Storage summary — DeepSeek-V4.1-Flash",
         "",
-        f"Revision: `{manifest['upstream']['revision']}`",
+        f"Revision: `{manifest['upstream']['revision']}` ({manifest['upstream']['repo_id']})",
         f"Schema: `{manifest['schema']}`",
         f"Generated: {manifest['generated_at_utc']} (DeepSeeker {manifest['deepseeker_commit']})",
         "",
@@ -556,6 +565,15 @@ def main() -> int:
         help="Upstream revision (default: pinned revision).",
     )
     parser.add_argument(
+        "--repo-id",
+        default=None,
+        help=(
+            "Hugging Face repository id. Default resolves the short name for "
+            "'DeepSeek-V4.1-Flash' or 'DeepSeek-V4.1-Flash-1017'; pass a full "
+            "id for anything else."
+        ),
+    )
+    parser.add_argument(
         "--allow-other-revision",
         action="store_true",
         help="Permit a non-pinned revision (recorded explicitly).",
@@ -568,7 +586,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    pinned = pinned_revision()
+    # Explicit --repo-id is the supported way to build a variant manifest.
+    repo_id = args.repo_id or REPO_ID
+    pinned = pinned_revision(repo_id)
     revision = args.revision or pinned
     if revision is None:
         print("ERROR: no pinned revision found; run fetch_upstream first.")
@@ -589,7 +609,7 @@ def main() -> int:
         return 1
 
     api = HfApi()
-    index_path = api.hf_hub_download(REPO_ID, "model.safetensors.index.json", revision=revision)
+    index_path = api.hf_hub_download(repo_id, "model.safetensors.index.json", revision=revision)
     index_bytes = Path(index_path).stat().st_size
     with open(index_path, encoding="utf-8") as f:
         weight_map = json.load(f)["weight_map"]
@@ -599,14 +619,14 @@ def main() -> int:
     fetcher = RangeFetcher()
     shard_headers = {}
     for i, shard in enumerate(shards, 1):
-        url = f"https://huggingface.co/{REPO_ID}/resolve/{revision}/{shard}"
+        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{shard}"
         header, header_len, file_size = fetcher.fetch_shard_header(url)
         shard_headers[shard] = (header, header_len, file_size)
         print(f"[{i}/{len(shards)}] {shard}: {len(header)} entries")
 
     # Architecture from the pinned local config (extracted, not hardcoded
     # model constants: every value below is read from config.json).
-    config_path = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / ("config.json")
+    config_path = upstream_root(repo_id) / "config.json"
     architecture: dict = {"source": "upstream config.json"}
     if config_path.exists():
         with open(config_path, encoding="utf-8") as f:
@@ -630,6 +650,7 @@ def main() -> int:
         architecture["warning"] = "local config.json not fetched"
 
     manifest = build_manifest(
+        repo_id,
         revision,
         weight_map,
         shard_headers,

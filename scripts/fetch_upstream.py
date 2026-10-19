@@ -17,6 +17,10 @@ from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download
 
 REPO_ID = "deepseek-ai/DeepSeek-V4.1-Flash"
+REPO_VARIANTS = {
+    "DeepSeek-V4.1-Flash": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "DeepSeek-V4.1-Flash-1017": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+}
 DEFAULT_DEST = Path("upstream/DeepSeek-V4.1-Flash")
 
 ALLOW_PATTERNS = [
@@ -52,6 +56,15 @@ def parse_args() -> argparse.Namespace:
         help="Hugging Face branch/tag/commit to resolve (default: main).",
     )
     parser.add_argument(
+        "--repo-id",
+        default=None,
+        help=(
+            "Hugging Face repository id. Default resolves the short name "
+            "for 'DeepSeek-V4.1-Flash' or 'DeepSeek-V4.1-Flash-1017'; pass a "
+            "full id for anything else."
+        ),
+    )
+    parser.add_argument(
         "--dest",
         type=Path,
         default=DEFAULT_DEST,
@@ -64,7 +77,12 @@ def main() -> None:
     args = parse_args()
     api = HfApi()
 
-    info = api.model_info(REPO_ID, revision=args.revision)
+    repo_id = args.repo_id or REPO_VARIANTS.get(REPO_ID.split("/")[-1], REPO_ID)
+    if args.dest == DEFAULT_DEST and repo_id != REPO_ID:
+        variant = repo_id.split("/")[-1]
+        args.dest = Path("upstream") / variant
+
+    info = api.model_info(repo_id, revision=args.revision)
     resolved_sha = info.sha
     if not resolved_sha:
         raise RuntimeError("Could not resolve an immutable upstream revision.")
@@ -72,7 +90,7 @@ def main() -> None:
     args.dest.mkdir(parents=True, exist_ok=True)
 
     snapshot_download(
-        repo_id=REPO_ID,
+        repo_id=repo_id,
         repo_type="model",
         revision=resolved_sha,
         local_dir=args.dest,
@@ -81,10 +99,10 @@ def main() -> None:
     )
 
     manifest = {
-        "repo_id": REPO_ID,
+        "repo_id": repo_id,
         "requested_revision": args.revision,
         "resolved_revision": resolved_sha,
-        "source": f"https://huggingface.co/{REPO_ID}",
+        "source": f"https://huggingface.co/{repo_id}",
         "weights_downloaded": False,
     }
     (args.dest / "DEEPSEEKER_UPSTREAM.json").write_text(
@@ -92,7 +110,7 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"Fetched {REPO_ID}")
+    print(f"Fetched {repo_id}")
     print(f"Resolved revision: {resolved_sha}")
     print(f"Destination: {args.dest}")
     print("Weights: excluded")

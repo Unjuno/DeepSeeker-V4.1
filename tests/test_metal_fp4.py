@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +21,15 @@ from deepseeker.metal_fp4 import (
     torch_reference,
 )
 
-MODEL_ROOT = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+MODEL_ROOT = REPO_ROOT / "models" / (
+        "DeepSeek-V4.1-Flash-1017"
+        if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+        else "DeepSeek-V4.1-Flash"
+    )
+
+WEIGHTS_PRESENT = any(MODEL_ROOT.glob("*.safetensors"))
+_needs_weights = pytest.mark.skipif(
+    not WEIGHTS_PRESENT, reason="model weights not downloaded")
 
 
 def test_table_spot_values():
@@ -44,11 +53,16 @@ def test_metal_matches_references_random():
     np.testing.assert_array_equal(got, torch_vals)
 
 
+@_needs_weights
 def test_metal_on_real_expert_bytes():
     import os
 
     revision = load_json(
-        REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
+        REPO_ROOT / "upstream" / (
+    "DeepSeek-V4.1-Flash-1017"
+    if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+    else "DeepSeek-V4.1-Flash"
+) / "DEEPSEEKER_UPSTREAM.json"
     )["resolved_revision"]
     manifest = load_json(
         REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / revision / "model-manifest.json"
@@ -76,6 +90,10 @@ def test_metal_on_real_expert_bytes():
     assert finite.mean() > 0.99
     assert np.abs(got[finite]).max() < 448.0  # e4m3fn range per convert.py comment
 
+
+WEIGHTS_PRESENT = any(MODEL_ROOT.glob("*.safetensors"))
+_needs_weights = pytest.mark.skipif(
+    not WEIGHTS_PRESENT, reason="model weights not downloaded")
 
 def test_bad_scales_rejected():
     packed = np.zeros(128, dtype=np.uint8)
