@@ -116,6 +116,35 @@ def dequant_packed(packed: mx.array, scales: mx.array) -> mx.array:
                          mode="mxfp4").astype(mx.bfloat16)
 
 
+def unpack_int3_affine(wdata, sdata, bdata, weight_shape, scale_shape
+                       ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Stored Q3-affine payload bytes -> NumPy (uint32 words, f16 scales/bias).
+
+    The writer produces payloads with mx.quantize(group_size=64, bits=3) on
+    float32 values dequantized out of the checkpoint's MXFP4 tensors, then
+    widens the fp32 scale/bias groups to float16. Packing is MLX-internal
+    (scrambled word order), so both directions must round-trip through MLX.
+    ``weight_shape`` is the packed [rows, words] shape from the manifest;
+    ``scale_shape`` is the [rows, groups] shape shared by scales and biases.
+    NumPy-only so IO-pool workers never touch MLX streams.
+    """
+    words = np.frombuffer(wdata, dtype="<u4")
+    scales = np.frombuffer(sdata, dtype="<f2").reshape(scale_shape)
+    biases = np.frombuffer(bdata, dtype="<f2").reshape(scale_shape)
+    rows, word_cols = weight_shape
+    expected_words = (scales.shape[1] * Q3_GROUP_SIZE * Q3_BITS + 31) // 32
+    if scales.shape != biases.shape or scales.shape[0] != rows \
+            or expected_words != word_cols:
+        raise ValueError(
+            "q3 scale/bias shape mismatch against manifest "
+            f"(weight {weight_shape}, scale {scales.shape})")
+    return (words.reshape(rows, word_cols), scales, biases)
+
+
+Q3_GROUP_SIZE = int(os.environ.get("DEEPSEEKER_Q3_GROUP", "64"))
+Q3_BITS = int(os.environ.get("DEEPSEEKER_Q3_BITS", "3"))
+
+
 def dequant_fp4_rowmajor(packed: np.ndarray, scales: np.ndarray) -> np.ndarray:
     """Flat fp4 pairs (low nibble first) + per-32 ue8m0 scales -> float32.
 
@@ -258,6 +287,9 @@ class ExpertLoader:
             base = self._expert_name(layer, expert, prefix, role)
             ents.append((role, "weight", self._by_name[f"{base}.weight"]))
             ents.append((role, "scale", self._by_name[f"{base}.scale"]))
+            bias = self._by_name.get(f"{base}.bias")
+            if bias is not None:
+                ents.append((role, "bias", bias))
         ents.sort(key=lambda t: (t[2]["shard"], t[2]["file_range"][0]))
         runs: list[dict] = []
         for role, kind, e in ents:
@@ -288,10 +320,14 @@ class ExpertLoader:
             for role, kind, off, e in run["parts"]:
                 slot = out.setdefault(role, {})
                 slot[kind] = mv[off:off + e["bytes"]]
-                if kind == "weight":
-                    slot["shape"] = tuple(e["shape"])
-        return [(r, out[r]["weight"], out[r]["scale"], out[r]["shape"])
-                for r in ("w1", "w2", "w3")]
+                slot[f"{kind}_shape"] = tuple(e["shape"])
+        return [
+            (r, out[r]["weight"],
+             out[r]["scale"], out[r].get("bias"),
+             out[r]["weight_shape"],
+             out[r].get("scale_shape"))
+            for r in ("w1", "w2", "w3")
+        ]
 
     def _read_role(self, layer: int, expert: int, prefix: str, role: str):
         base = self._expert_name(layer, expert, prefix, role)
@@ -332,18 +368,27 @@ class ExpertLoader:
     def _allocate_direct_runs(self, layer: int, expert: int,
                               prefix: str) -> list[tuple[dict, mx.array]]:
         runs = self._expert_runs(prefix, layer, expert)
+        allowed = {"weight", "scale", "bias"}
         plan: list[tuple[dict, mx.array]] = []
         for run in runs:
             nbytes = run["end"] - run["start"]
             kinds = {kind for _, kind, _, _ in run["parts"]}
-            if kinds == {"weight"}:
+            unknown = kinds - allowed
+            if unknown:
+                raise ValueError(
+                    f"unsupported kinds in expert run: {sorted(unknown)}")
+            widths = {1 if kind == "weight" else 2 for kind in kinds}
+            if len(widths) > 1:
+                raise ValueError(
+                    f"mixed byte widths in expert run: {sorted(kinds)}")
+            if widths == {1}:
                 if nbytes % 4:
                     raise ValueError("packed weight run is not uint32 aligned")
                 buf = mx.empty((nbytes // 4,), dtype=mx.uint32)
-            elif kinds == {"scale"}:
-                buf = mx.empty((nbytes,), dtype=mx.uint8)
             else:
-                raise ValueError("mixed weight/scale run is unsupported")
+                if nbytes % 2:
+                    raise ValueError("fp16-scale/bias run is not uint16 aligned")
+                buf = mx.empty((nbytes // 2,), dtype=mx.uint16)
             plan.append((run, buf))
         return plan
 
@@ -365,19 +410,37 @@ class ExpertLoader:
         out: dict[str, dict[str, mx.array]] = {}
         for run, buf, _host_view in plan:
             for role, kind, offset, entry in run["parts"]:
+                shape = tuple(entry["shape"])
                 if kind == "weight":
                     begin = offset // 4
                     count = entry["bytes"] // 4
-                    shape = (int(entry["shape"][0]),
-                             int(entry["shape"][1]) // 4)
+                    if entry["dtype"] != "U32_Q3_AFFINE":
+                        shape = (shape[0], shape[1] // 4)  # fp4 uint8 pairs
                 else:
-                    begin = offset
-                    count = entry["bytes"]
-                    shape = tuple(entry["shape"])
-                arr = buf[begin:begin + count].reshape(shape)
-                out.setdefault(role, {})[kind] = arr
-        return {role: (out[role]["weight"], out[role]["scale"])
+                    begin = offset // 2
+                    count = entry["bytes"] // 2
+                raw = np.array(buf[begin:begin + count], copy=True)
+                out.setdefault(role, {})[kind] = (raw, shape,
+                                                  entry["dtype"])
+        return {role: self._role_operands_np(out[role])
                 for role in ("w1", "w2", "w3")}
+
+    @staticmethod
+    def _role_operands_np(slot: dict[str, tuple]) -> tuple:
+        """NumPy qmm operands from direct-pread buffers (fp4 pair or q3 triple)."""
+        unpacked: dict[str, np.ndarray] = {}
+        for kind, (raw, shape, dtype) in slot.items():
+            if dtype == "U32_Q3_AFFINE":
+                unpacked[kind] = raw.view("<u4").reshape(shape)
+            elif dtype == "F16":
+                unpacked[kind] = raw.view("<f2").reshape(shape)
+            elif kind == "weight":
+                unpacked[kind] = raw.view(np.uint32).reshape(shape)
+            else:
+                unpacked[kind] = raw.reshape(shape)
+        if "bias" in unpacked:
+            return (unpacked["weight"], unpacked["scale"], unpacked["bias"])
+        return (unpacked["weight"], unpacked["scale"])
 
     def _load_expert_direct(self, layer: int, expert: int,
                             prefix: str) -> dict[str, tuple[mx.array, mx.array]]:
@@ -404,14 +467,38 @@ class ExpertLoader:
             self.load_calls += 1
             return out
         parts = self._read_expert_parts(layer, expert, prefix, parallel=True)
-        out: dict[str, tuple[mx.array, mx.array]] = {}
-        for role, wdata, sdata, (rows, pair_cols) in parts:
-            out[role] = self._pack_expert(wdata, sdata, rows, pair_cols)
+        out: dict[str, tuple] = {}
+        for role, wdata, sdata, bdata, shape, scale_shape in parts:
+            out[role] = self._to_mx_operands(
+                self._role_from_parts(wdata, sdata, bdata,
+                                      shape, scale_shape))
         mx.eval([t for pair in out.values() for t in pair])
         self.io_s += time.perf_counter() - t0
-        self.bytes_read += sum(len(w) + len(s) for _, w, s, _ in parts)
+        self.bytes_read += sum(len(w) + len(s) + (len(b) if b else 0)
+                               for _, w, s, b, _s, _ss in parts)
         self.load_calls += 1
         return out
+
+    def _role_from_parts(self, wdata: bytes, sdata: bytes,
+                         bdata: bytes | None, shape,
+                         scale_shape=None) -> tuple:
+        """Build qmm operands from raw reader data (fp4 pair or q3 triple).
+
+        Returns NumPy operands: mx.array conversion happens on the caller
+        thread (worker threads may exit before the main-thread eval, and a
+        lazy mx op recorded on a dead thread's stream cannot be evaluated).
+        """
+        rows, pair_cols = shape
+        if bdata is None:
+            return pack_fp4_mxfp4(wdata, sdata, rows, pair_cols)
+        return unpack_int3_affine(wdata, sdata, bdata, shape, scale_shape)
+
+    @staticmethod
+    def _to_mx_operands(parts: tuple) -> tuple[mx.array, ...]:
+        """Upload NumPy operand tuples (fp4 pair or q3 triple) to MLX."""
+        return tuple(mx.array(np.asarray(part)) for part in parts)
+
+    to_mx_operands = _to_mx_operands
 
     def load_experts_parallel(self, specs: list[tuple[int, int, str]], workers: int = 8) -> dict[tuple[str, int, int], dict[str, tuple[mx.array, mx.array]]]:
         """Load many experts with read+pack overlapped inside each worker.
@@ -447,11 +534,13 @@ class ExpertLoader:
             parts = self._read_expert_parts(layer, expert, prefix)
             tp0 = time.perf_counter()
             packed = [
-                (role, self._pack_expert(wdata, sdata, rows, pair_cols))
-                for role, wdata, sdata, (rows, pair_cols) in parts
+                (role, self._role_from_parts(wdata, sdata, bdata,
+                                              shape, scale_shape))
+                for role, wdata, sdata, bdata, shape, scale_shape in parts
             ]
             pack_s = time.perf_counter() - tp0
-            nbytes = sum(len(w) + len(s) for _, w, s, _ in parts)
+            nbytes = sum(len(w) + len(s) + (len(b) if b else 0)
+                         for _, w, s, b, _s, _ss in parts)
             return (prefix, layer, expert), packed, pack_s, nbytes
 
         t0 = time.perf_counter()
@@ -462,10 +551,15 @@ class ExpertLoader:
         pack_wall = 0.0
         for key, packed, pack_s, _ in reads:
             if self.direct_pread:
-                packed = list(self._direct_plan_to_expert(packed).items())
-            out[key] = dict(packed)
-            for _, pair in packed:
-                pending.extend(pair)
+                packed = [(role, self._role_operands_np(slot))
+                          for role, slot in
+                          self._direct_plan_to_expert(packed).items()]
+            # Convert on this thread: worker threads may be gone by the time
+            # the caller evals, and lazy nodes recorded on dead streams fail.
+            out[key] = {role: self._to_mx_operands(operands)
+                        for role, operands in packed}
+            for operands in out[key].values():
+                pending.extend(operands)
             pack_wall += pack_s
         if pending:
             mx.eval(pending)
@@ -502,11 +596,13 @@ class ExpertLoader:
             parts = self._read_expert_parts(layer, expert, prefix)
             t0 = time.perf_counter()
             packed = {
-                role: pack_fp4_mxfp4(wdata, sdata, shape[0], shape[1])
-                for role, wdata, sdata, shape in parts
+                role: self._role_from_parts(wdata, sdata, bdata,
+                                             shape, scale_shape)
+                for role, wdata, sdata, bdata, shape, scale_shape in parts
             }
             pack_s = time.perf_counter() - t0
-            nbytes = sum(len(w) + len(s) for _, w, s, _ in parts)
+            nbytes = sum(len(w) + len(s) + (len(b) if b else 0)
+                         for _, w, s, b, _s, _ss in parts)
             return expert, packed, pack_s, nbytes
 
         out: dict[int, dict] = {}
@@ -522,14 +618,18 @@ class ExpertLoader:
             total_bytes += sum(nbytes for _, _, _, nbytes in reads)
             pack_wall += sum(pack_s for _, _, pack_s, _ in reads)
             experts = [expert for expert, _, _, _ in reads]
-            banks: dict[str, tuple[mx.array, mx.array]] = {}
+            banks: dict[str, tuple] = {}
             pending: list[mx.array] = []
             for role in ("w1", "w2", "w3"):
-                ws = np.stack([packed[role][0] for _, packed, _, _ in reads])
-                ss = np.stack([packed[role][1] for _, packed, _, _ in reads])
-                mw, ms = mx.array(ws), mx.array(ss)
-                banks[role] = (mw, ms)
-                pending.extend((mw, ms))
+                n_parts = max(len(packed[role]) for _, packed, _, _ in reads)
+                stacked = [
+                    mx.array(np.stack(
+                        [np.asarray(packed[role][idx], copy=False)
+                         for _, packed, _, _ in reads]))
+                    for idx in range(n_parts)
+                ]
+                banks[role] = tuple(stacked)
+                pending.extend(stacked)
             t_upload = time.perf_counter()
             mx.eval(pending)
             upload_wall += time.perf_counter() - t_upload

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -180,11 +181,14 @@ def main() -> int:
         parser.error("--batch must be >= 1")
 
     snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash"
+    if os.environ.get("DEEPSEEKER_VARIANT", "").startswith("1"):
+        snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash-1017"
     revision = load_json(snapshot / "DEEPSEEKER_UPSTREAM.json")["resolved_revision"]
-    manifest = load_json(
-        REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / revision / "model-manifest.json")
+    from deepseeker.variant_q3 import paths_for_variant
+    model_root, manifest_path = paths_for_variant(
+        revision, REPO_ROOT, snapshot.name)
+    manifest = load_json(manifest_path)
     config = load_json(snapshot / "inference" / "config.json")
-    model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
     tokenizer = AutoTokenizer.from_pretrained(str(model_root))
 
     texts = [args.prompt] * n if args.prompt else DEFAULT_PROMPTS[:n]

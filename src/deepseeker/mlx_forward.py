@@ -24,6 +24,8 @@ from concurrent.futures import as_completed
 import mlx.core as mx
 import numpy as np
 
+from deepseeker.mlx_weights import Q3_BITS, Q3_GROUP_SIZE, ExpertLoader
+
 PROF = os.environ.get("DEEPSEEKER_PROFILE_SYNC") == "1"
 SYNC: dict[str, float] = {"gpu_wait": 0.0, "cpu": 0.0, "n": 0.0,
                           "prefetch": 0.0, "expert_gpu": 0.0}
@@ -79,15 +81,24 @@ def route_topk(scores: mx.array, bias: mx.array, top_k: int,
     return weights * route_scale, indices
 
 
-def qmm(x: mx.array, w: tuple[mx.array, mx.array]) -> mx.array:
-    """x @ W.T with W held as mxfp4 operands (uint32 words + ue8m0 scales).
+def qmm(x: mx.array, w: tuple) -> mx.array:
+    """x @ W.T with W held as compressed mxfp4 or q3-affine operands.
 
-    MLX dequantizes into registers and fuses it into the GEMM, so the weight
-    never materializes as bf16: 3.76x less memory traffic and no dequant pass.
-    Input stays float32 (accumulate); output is float32, max rel diff ~3e-7
-    against the dequant-then-bf16-GEMM staging path.
+    mxfp4: (uint32 words, uint8 ue8m0 scales) -- MLX dequantizes into
+    registers and fuses it into the GEMM, so the weight never materializes
+    as bf16: 3.76x less memory traffic and no dequant pass. Input stays
+    float32 (accumulate); output float32, max rel diff ~3e-7 against the
+    dequant-then-bf16-GEMM staging path.
+
+    q3: (uint32 words, float16 scales, float16 biases) -- MLX-native affine
+    quantization at group_size=64, bits=3, produced by requant_experts_3bit.
+    Same fused-dequant property; ~17% fewer bytes per token than mxfp4.
     """
-    packed, scales = w
+    packed, scales, *rest = w
+    if rest:
+        return mx.quantized_matmul(x, packed, scales=scales, biases=rest[0],
+                                   transpose=True, group_size=Q3_GROUP_SIZE,
+                                   bits=Q3_BITS)
     return mx.quantized_matmul(x, packed, scales=scales, transpose=True,
                                group_size=32, bits=4, mode="mxfp4")
 
@@ -97,12 +108,13 @@ def stack_gate_up_expert(weights: dict) -> dict:
     if "w13" in weights:
         return weights
     w1, w3 = weights["w1"], weights["w3"]
-    if w1[0].shape[1:] != w3[0].shape[1:] or w1[1].shape[1:] != w3[1].shape[1:]:
-        raise ValueError("gate/up packed shapes must agree outside output rows")
-    if w1[0].shape[0] != w3[0].shape[0] or w1[1].shape[0] != w3[1].shape[0]:
-        raise ValueError("gate/up output row counts must agree")
-    return {"w13": (mx.concatenate((w1[0], w3[0]), axis=0),
-                     mx.concatenate((w1[1], w3[1]), axis=0)),
+    if len(w1) != len(w3) or len(w1) not in (2, 3):
+        raise ValueError("w1/w3 operand arity must be 2 (mxfp4) or 3 (q3)")
+    for a, b in zip(w1, w3):
+        if a.shape[1:] != b.shape[1:] or a.shape[0] != b.shape[0]:
+            raise ValueError("gate/up packed shapes must agree")
+    return {"w13": (tuple(mx.concatenate((a, b), axis=0)
+                         for a, b in zip(w1, w3))),
             "w2": weights["w2"]}
 
 
@@ -110,13 +122,18 @@ def split_gate_up_expert(weights: dict) -> dict:
     """Return w1/w3 views from a cached w13 representation without copying."""
     if "w13" not in weights:
         return weights
-    packed, scales = weights["w13"]
-    if packed.shape[0] % 2 or scales.shape[0] % 2:
+    parts = weights["w13"]
+    packed = parts[0]
+    if packed.shape[0] % 2:
         raise ValueError("stacked gate/up rows must divide evenly")
-    half = packed.shape[0] // 2
-    scale_half = scales.shape[0] // 2
-    return {"w1": (packed[:half], scales[:scale_half]),
-            "w3": (packed[half:], scales[scale_half:]),
+    out = {}
+    for part in parts:
+        scale_half = part.shape[0] // 2
+        if part.shape[0] % 2:
+            raise ValueError("stacked gate/up operand rows must divide evenly")
+        out.setdefault("w1", []).append(part[:scale_half])
+        out.setdefault("w3", []).append(part[scale_half:])
+    return {"w1": tuple(out["w1"]), "w3": tuple(out["w3"]),
             "w2": weights["w2"]}
 
 
@@ -141,14 +158,15 @@ def gate_up_qmm(x: mx.array, weights, *, stack_single_row: bool = False
 
 def gather_pinned_contributions(
         x: mx.array, indices: np.ndarray, weights: np.ndarray,
-        banks: dict[str, tuple[mx.array, mx.array]],
-        slots: dict[int, int], limit: float = 10.0
+        banks: dict[str, tuple], slots: dict[int, int], limit: float = 10.0
         ) -> dict[int, tuple[np.ndarray, mx.array]]:
     """Compute selected pinned experts with three banked gather_qmm calls.
 
     Returns each expert's routed row indices and weighted output rows. Dynamic
     experts remain on the ordinary per-expert path. Pair order is sorted by
     expert then row so the caller can preserve the reference scatter-add order.
+    Banks carry mxfp4 pairs or q3-affine triples; both use fused-dequant
+    gather_qmm.
     """
     pairs = [(int(expert), row, col)
              for expert in sorted(slots)
@@ -167,9 +185,15 @@ def gather_pinned_contributions(
     routed_x = x[mx.array(rows)].astype(mx.float32)[:, None, :]
 
     def gather(role: str, activations: mx.array) -> mx.array:
-        packed, scales = banks[role]
+        parts = banks[role]
+        if len(parts) == 3:
+            return mx.gather_qmm(
+                activations, parts[0], scales=parts[1], biases=parts[2],
+                lhs_indices=lhs, rhs_indices=rhs, transpose=True,
+                group_size=Q3_GROUP_SIZE, bits=Q3_BITS
+            ).reshape(len(pairs), -1)
         return mx.gather_qmm(
-            activations, packed, scales=scales, lhs_indices=lhs,
+            activations, parts[0], scales=parts[1], lhs_indices=lhs,
             rhs_indices=rhs, transpose=True, group_size=32, bits=4,
             mode="mxfp4").reshape(len(pairs), -1)
 
@@ -323,6 +347,10 @@ def moe_layer(x: mx.array, gate_w: mx.array, gate_b: mx.array,
             for fut in as_completed(futs.values()):
                 e = fut_to_expert[fut]
                 d, nbytes, was_hit, read_worker_s, pack_worker_s = fut.result()
+                # Workers return NumPy operands; convert on this thread so
+                # no lazy node is bound to a worker stream.
+                d = {role: ExpertLoader.to_mx_operands(ops)
+                     for role, ops in d.items()}
                 mask = idx_np == e
                 rows = np.where(mask.any(axis=1))[0]
                 cols = [int(np.where(mask[r])[0][0]) for r in rows]
