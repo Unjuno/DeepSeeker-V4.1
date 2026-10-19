@@ -109,3 +109,27 @@ stretch goal, which is aggregate over many sequences and blocked today by
 per-forward compute and memory pressure, not expert bytes alone.
 Quantization is therefore a multiplier on the storage term, not the
 primary path to the target. Decision above keeps that in frame.
+
+## Pilot results (2026-10-20, post-fix)
+
+Everything below supersedes any earlier "incoherent output" observations:
+the engine had a pretrained-port omission — the main attention window KV
+was never passed through `kv_norm` RMSNorm (model.py:706 semantic) — so
+greedy generation was garbage for ALL variants, independent of
+quantization. Localized via a CPU oracle (upstream torch reference with
+tilelang kernels replaced by plain math) diffed per-stage against the MLX
+engine: embedding/hc/norm exact, layer-0 attention cos 0.83 → after the
+one-line fix cos 0.999996; downstream stages all ≥0.99.
+
+With the fix in (commit 60b9ae3), the Q3 pilot ({bits:3, gs:64, MLX-native
+affine, layers 20-39} via model-manifest-q3.json) runs coherently:
+
+- greedy texts match the FP4 baseline structurally on code and knowledge
+  prompts; per-token divergence starts within a few tokens, as expected;
+- decode tok/s comparable (1.14 vs 1.09 in these probes; the point of
+  the pilot is bytes/token, to be re-measured with the bytes harness);
+- expert payload: 15.48 MB (-17.6% vs 18.8 MB FP4); payload on disk:
+  models/DeepSeek-V4.1-Flash-1017-Q3/routed-q3.payload (118.9 GB).
+- the OAS/MBS block-scale refinement (finding 3) and an ABBA quality
+  harness (route coverage + held-out generation + small PPL sample)
+  remain open before promoting Q3 to default.
