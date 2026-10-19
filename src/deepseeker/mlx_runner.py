@@ -49,34 +49,41 @@ def _np_f32(a) -> np.ndarray:
 class Runner:
     """Owns weights, caches, and streaming loaders for one session."""
 
-    def __init__(self, model_root: Path | str, manifest: dict, config: dict,
-                 trace_hook=None, expert_cache_cap: int = 256,
-                 expert_prefill_cache_cap: int = 0,
-                 expert_prefetch_workers: int = 8,
-                 expert_policy: str = "lru",
-                 expert_pin: dict[int, list[int]] | None = None,
-                 expert_pin_gather: bool = False,
-                 max_batch: int = 1,
-                 batch_prefetch: bool = False,
-                 union_budget: int = 0, union_strict: bool = False,
-                 top_k: int = 0,
-                 no_shared: bool = False,
-                 hc_iters: int = 0,
-                 window: int = 0,
-                 attn_bf16: bool = False,
-                 skip_every: int = 0,
-                 skip_block: int = 0,
-                 no_engram: bool = False,
-                 head_bf16: bool = False,
-                 proj_bf16: bool = False,
-                 keep_layers: int = -1,
-                 head_quant: bool = False,
-                 head_vocab: int = 0,
-                 scale_inv_head: bool = True,
-                 head_compose: bool = True,
-                 step_cpu: bool = True,
-                 moe_pipeline: bool = False,
-                 indexer_gpu_topk: bool = False) -> None:
+    def __init__(
+        self,
+        model_root: Path | str,
+        manifest: dict,
+        config: dict,
+        trace_hook=None,
+        expert_cache_cap: int = 256,
+        expert_prefill_cache_cap: int = 0,
+        expert_prefetch_workers: int = 8,
+        expert_policy: str = "lru",
+        expert_pin: dict[int, list[int]] | None = None,
+        expert_pin_gather: bool = False,
+        max_batch: int = 1,
+        batch_prefetch: bool = False,
+        union_budget: int = 0,
+        union_strict: bool = False,
+        top_k: int = 0,
+        no_shared: bool = False,
+        hc_iters: int = 0,
+        window: int = 0,
+        attn_bf16: bool = False,
+        skip_every: int = 0,
+        skip_block: int = 0,
+        no_engram: bool = False,
+        head_bf16: bool = False,
+        proj_bf16: bool = False,
+        keep_layers: int = -1,
+        head_quant: bool = False,
+        head_vocab: int = 0,
+        scale_inv_head: bool = True,
+        head_compose: bool = True,
+        step_cpu: bool = True,
+        moe_pipeline: bool = False,
+        indexer_gpu_topk: bool = False,
+    ) -> None:
         self._root = Path(model_root)
         # Decode drops rmsnorm's row reduction (see head_logits): rstd is a
         # positive per-row scalar and cancels under argmax, so tokens are
@@ -103,10 +110,8 @@ class Runner:
         # Experimental quality-preserving pre-attention expert prefetch.
         # The checkpoint router remains authoritative; this only reads the
         # pre-attention gate's top-1 candidate ahead of attention.
-        self._pre_attn_prefetch_enabled = (
-            os.environ.get("DEEPSEEKER_PREATTN_PREFETCH") == "1")
-        self._pre_attn_top_k = max(
-            1, int(os.environ.get("DEEPSEEKER_PREATTN_TOPK", "1")))
+        self._pre_attn_prefetch_enabled = os.environ.get("DEEPSEEKER_PREATTN_PREFETCH") == "1"
+        self._pre_attn_top_k = max(1, int(os.environ.get("DEEPSEEKER_PREATTN_TOPK", "1")))
         self._pre_attn_pending: dict[tuple[str, int], dict] = {}
         self._pre_attn_predictions = 0
         self._pre_attn_cache_hits = 0
@@ -131,8 +136,7 @@ class Runner:
         self._union_strict = bool(union_strict)
         # Activated experts per token. 0 = config value (n_activated_experts).
         # Lowering it cuts both route compute and expert bytes proportionally.
-        self._top_k = int(top_k) if top_k else int(
-            config.get("n_activated_experts", 6))
+        self._top_k = int(top_k) if top_k else int(config.get("n_activated_experts", 6))
         # Speed mode: drop the always-on shared expert (costs output quality).
         self._no_shared = bool(no_shared)
         # 0 = keep the checkpoint's hc_sinkhorn_iters (exact routing maths).
@@ -201,14 +205,15 @@ class Runner:
         self._route_pred = None
         if os.environ.get("DEEPSEEKER_ROUTE_PRED") == "1":
             from deepseeker.route_pred import RoutePred
+
             self._route_pred = RoutePred()
         self._fake_w: tuple | None = None
         self._expert_prefetch_workers = expert_prefetch_workers
         self._expert_policy = expert_policy if expert_policy in ("lru", "lfu") else "lru"
         self._expert_freq: dict[tuple[str, int, int], int] = {}
         self._expert_pinned: set[tuple[str, int, int]] = {
-            ("layers", int(ly), int(e))
-            for ly, es in (expert_pin or {}).items() for e in es}
+            ("layers", int(ly), int(e)) for ly, es in (expert_pin or {}).items() for e in es
+        }
         self._expert_pin_gather = bool(expert_pin_gather)
         if self._expert_pin_gather and not self._expert_pinned:
             raise ValueError("expert_pin_gather requires at least one pinned expert")
@@ -216,8 +221,10 @@ class Runner:
         self._pin_resident = 0
         print("loading dense weights...", flush=True)
         self._dense = DenseLoader(model_root, manifest).load_all()
-        print(f"dense resident: {sum(a.nbytes for a in self._dense.values()) / 2**30:.1f} GiB",
-              flush=True)
+        print(
+            f"dense resident: {sum(a.nbytes for a in self._dense.values()) / 2**30:.1f} GiB",
+            flush=True,
+        )
         # Dequant allocates a transient twin of every dense tensor, so the
         # allocator retires ~28 GiB into its free list. Left unreturned the OS
         # loses its page cache (sysfree drops to ~1 GiB) and every expert
@@ -232,11 +239,13 @@ class Runner:
         # DEEPSEEKER_ENGRAM_DIRECT=1 swaps the page/ThreadPool machinery for a
         # resident mmap (see EngramRowCache._fetch_direct).
         self._engram_cache = EngramRowCache(
-            model_root, self._refs,
+            model_root,
+            self._refs,
             int(os.environ.get("DEEPSEEKER_ENGRAM_CACHE_MB", "256")) * 1024**2,
             4096,
             max_workers=int(os.environ.get("DEEPSEEKER_ENGRAM_WORKERS", "16")),
-            direct=os.environ.get("DEEPSEEKER_ENGRAM_DIRECT", "0") == "1")
+            direct=os.environ.get("DEEPSEEKER_ENGRAM_DIRECT", "0") == "1",
+        )
         self._engram_np: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         self._engram_mx: dict[int, mx.array] = {}
         self._engram_wkv_mx: dict[int, mx.array] = {}
@@ -270,10 +279,12 @@ class Runner:
         # entries. When pins are configured, the caller may have subtracted
         # them from a total cache budget; honor that reserved LRU remainder.
         self._expert_cache_cap = expert_lru_budget(
-            expert_cache_cap, has_static_pins=bool(self._expert_pinned))
+            expert_cache_cap, has_static_pins=bool(self._expert_pinned)
+        )
         self._expert_decode_cache_cap = self._expert_cache_cap
         self._expert_prefill_cache_cap = max(
-            self._expert_decode_cache_cap, int(expert_prefill_cache_cap or 0))
+            self._expert_decode_cache_cap, int(expert_prefill_cache_cap or 0)
+        )
         self.expert_loads = 0
         self.expert_cache_hits = 0
         self.expert_evictions = 0
@@ -284,8 +295,7 @@ class Runner:
             # Dense ~18GiB + experts (cap*70.8MB) + head f32; leave KV/engram slack.
             # 2GiB is the measured optimum: 3-4GiB retention pushes free RAM to
             # 0 during decode and the resulting reclaim stalls cost 2.7x (0.337->0.136).
-            mx.set_cache_limit(int(os.environ.get(
-                "DEEPSEEKER_MLX_POOL_GB", "2")) * 1024**3)
+            mx.set_cache_limit(int(os.environ.get("DEEPSEEKER_MLX_POOL_GB", "2")) * 1024**3)
             mx.set_memory_limit(56 * 1024**3)
         except (RuntimeError, AttributeError):
             pass  # non-Metal backends ignore memory governance
@@ -320,16 +330,16 @@ class Runner:
                     raise RuntimeError("--head-quant: head.weight unavailable")
                 w = wt.T
             if self._head_vocab:
-                w = w[:self._head_vocab]
-            q = mx.quantize(w.astype(mx.bfloat16), group_size=128, bits=8,
-                            mode="affine")
+                w = w[: self._head_vocab]
+            q = mx.quantize(w.astype(mx.bfloat16), group_size=128, bits=8, mode="affine")
             mx.eval(*q)
             self._head_q = q
             del w
             mx.clear_cache()
         w, sc, bi = q
-        return mx.quantized_matmul(normed, w, sc, bi, transpose=True,
-                                   group_size=128, bits=8, mode="affine")
+        return mx.quantized_matmul(
+            normed, w, sc, bi, transpose=True, group_size=128, bits=8, mode="affine"
+        )
 
     _COMPOSE_MAX_VOCAB = 4096
 
@@ -371,7 +381,7 @@ class Runner:
         n = E.shape[0]
         blocks: list[mx.array] = []
         for i in range(0, n, 16384):
-            blk = E[i:i + 16384].astype(mx.float32) @ A.T
+            blk = E[i : i + 16384].astype(mx.float32) @ A.T
             mx.eval(blk)
             blocks.append(blk)
         mt = mx.concatenate(blocks, axis=0)
@@ -382,8 +392,7 @@ class Runner:
             self._head_mt_np = np.array(mt)  # same bits; host step reads these
         return mt
 
-    def head_logits(self, h: mx.array, *,
-                    scale_invariant: bool = False) -> mx.array:
+    def head_logits(self, h: mx.array, *, scale_invariant: bool = False) -> mx.array:
         cfg = self._config
         if scale_invariant:
             # Argmax-only consumer. rmsnorm is (h * rstd * weight), and rstd is
@@ -400,8 +409,7 @@ class Runner:
                 self._norm_w_f32 = w
             normed = h * w
         else:
-            normed = F.rmsnorm(h, self._dense["norm.weight"],
-                               cfg.get("norm_eps", 1e-20))
+            normed = F.rmsnorm(h, self._dense["norm.weight"], cfg.get("norm_eps", 1e-20))
         return self._head_mm(normed)
 
     def _head_mm(self, normed: mx.array) -> mx.array:
@@ -413,7 +421,7 @@ class Runner:
             if wt is None:
                 wt = self._dense["head.weight"]
                 if self._head_vocab:
-                    wt = wt[:self._head_vocab]
+                    wt = wt[: self._head_vocab]
                 wt = wt.T
                 mx.eval(wt)
                 self._head_wt_bf = wt
@@ -425,7 +433,7 @@ class Runner:
             # 1.26GiB bf16 -> f32.T once (~2.5GiB); avoids ~700ms/token cast.
             wt = self._dense["head.weight"]
             if self._head_vocab:
-                wt = wt[:self._head_vocab]
+                wt = wt[: self._head_vocab]
             wt = wt.astype(mx.float32).T
             mx.eval(wt)
             self._head_wt = wt
@@ -434,8 +442,9 @@ class Runner:
         return normed.astype(mx.float32) @ wt
 
     # -- MoE --------------------------------------------------------------
-    def _lfu_victim(self, cache, keep: tuple[str, int, int] | None = None
-                    ) -> tuple[str, int, int] | None:
+    def _lfu_victim(
+        self, cache, keep: tuple[str, int, int] | None = None
+    ) -> tuple[str, int, int] | None:
         """Lowest activation count among eligible keys; ties go to oldest."""
         freq = self._expert_freq
         for pass_id in (0, 1, 2):
@@ -444,8 +453,7 @@ class Runner:
             for k in cache:
                 if k == keep:
                     continue
-                if pass_id == 0 and (k in self._expert_used_now
-                                     or k in self._expert_protected):
+                if pass_id == 0 and (k in self._expert_used_now or k in self._expert_protected):
                     continue
                 if pass_id == 1 and k in self._expert_used_now:
                     continue
@@ -456,8 +464,9 @@ class Runner:
                 return best
         return None
 
-    def _expert_touch(self, key: tuple[str, int, int], weights: dict | None = None,
-                      *, stack_gateup: bool = False) -> dict:
+    def _expert_touch(
+        self, key: tuple[str, int, int], weights: dict | None = None, *, stack_gateup: bool = False
+    ) -> dict:
         """Touch/insert an expert.
 
         ``_expert_cache_cap`` budgets NON-pinned entries only; statically
@@ -467,8 +476,7 @@ class Runner:
         self._expert_freq[key] = self._expert_freq.get(key, 0) + 1
         is_pin = key in self._expert_pinned
         if weights is not None:
-            if (stack_gateup
-                    and "w13" not in weights and "w1" in weights and "w3" in weights):
+            if stack_gateup and "w13" not in weights and "w1" in weights and "w3" in weights:
                 weights = F.stack_gate_up_expert(weights)
                 mx.eval(*weights["w13"])
             if key not in cache and is_pin:
@@ -487,9 +495,11 @@ class Runner:
                 victim = None
                 # Pass 1: unprotected, not used this step, not pinned.
                 for old in cache:
-                    if (old not in self._expert_used_now
-                            and old not in self._expert_protected
-                            and old not in pinned):
+                    if (
+                        old not in self._expert_used_now
+                        and old not in self._expert_protected
+                        and old not in pinned
+                    ):
                         victim = old
                         break
                 # Pass 2: protected but idle (prev-step history); still not pinned.
@@ -500,8 +510,7 @@ class Runner:
                             break
                 # Pass 3: everything in use — oldest non-pinned (never the new key).
                 if victim is None:
-                    victim = next((old for old in cache
-                                   if old != key and old not in pinned), None)
+                    victim = next((old for old in cache if old != key and old not in pinned), None)
             if victim is None:
                 break
             del cache[victim]
@@ -511,8 +520,7 @@ class Runner:
             self.expert_evictions += 1
         return cache[key]
 
-    def _trim_metal_pool(self, *, force: bool = False,
-                         threshold_gib: float = 8.0) -> None:
+    def _trim_metal_pool(self, *, force: bool = False, threshold_gib: float = 8.0) -> None:
         """Return the allocator's idle free list to the OS.
 
         Nothing else on the machine can reclaim Metal-resident memory, so a
@@ -552,8 +560,7 @@ class Runner:
                     victim = k
                     break
             if victim is None:
-                victim = next((k for k in self._expert_cache
-                               if k not in self._expert_pinned), None)
+                victim = next((k for k in self._expert_cache if k not in self._expert_pinned), None)
             if victim is None:
                 break
             del self._expert_cache[victim]
@@ -578,14 +585,19 @@ class Runner:
                 return
             specs = [(ly, ex, ns) for (ns, ly, ex) in sorted(self._expert_pinned)]
             self._expert_pin_banks = self._expert_loader.load_expert_banks(
-                specs, workers=self._expert_prefetch_workers)
+                specs, workers=self._expert_prefetch_workers
+            )
             return
-        missing = [(ly, ex, ns) for (ns, ly, ex) in self._expert_pinned
-                   if (ns, ly, ex) not in self._expert_cache]
+        missing = [
+            (ly, ex, ns)
+            for (ns, ly, ex) in self._expert_pinned
+            if (ns, ly, ex) not in self._expert_cache
+        ]
         if not missing:
             return
         loaded = self._expert_loader.load_experts_parallel(
-            missing, workers=self._expert_prefetch_workers)
+            missing, workers=self._expert_prefetch_workers
+        )
         for (prefix, ly, ex), d in loaded.items():
             key = (prefix, ly, ex)
             if key not in self._expert_cache:
@@ -598,7 +610,8 @@ class Runner:
             return None
         if self._prefetch_pool is None:
             self._prefetch_pool = ThreadPoolExecutor(
-                max_workers=2, thread_name_prefix="expert-pre-attn")
+                max_workers=2, thread_name_prefix="expert-pre-attn"
+            )
         loader = self._expert_loader
 
         def _work():
@@ -610,17 +623,15 @@ class Runner:
             nbytes = 0
             for role, wdata, sdata, (rows, pair_cols) in parts:
                 nbytes += len(wdata) + len(sdata)
-                packed[role] = loader._pack_expert(wdata, sdata,
-                                                   rows, pair_cols)
+                packed[role] = loader._pack_expert(wdata, sdata, rows, pair_cols)
             pack_s = time.perf_counter() - t1
             return packed, nbytes, read_s, pack_s
 
         return self._prefetch_pool.submit(_work)
 
-    def _expert_fn(self, layer: int, ns: str = "layers",
-                   stack_gateup: bool | None = None):
-        stack_gateup = (self._expert_gateup_stack if stack_gateup is None
-                        else stack_gateup)
+    def _expert_fn(self, layer: int, ns: str = "layers", stack_gateup: bool | None = None):
+        stack_gateup = self._expert_gateup_stack if stack_gateup is None else stack_gateup
+
         def fetch(expert: int):
             if self._fake_experts:
                 if self._fake_w is None:
@@ -629,8 +640,7 @@ class Runner:
                 return self._fake_w
             key = (ns, layer, expert)
             if self._expert_pin_gather and key in self._expert_pinned:
-                raise RuntimeError(
-                    "banked pinned experts must be consumed by gather_qmm")
+                raise RuntimeError("banked pinned experts must be consumed by gather_qmm")
             hit = self._expert_cache.get(key)
             if hit is not None:
                 self.expert_cache_hits += 1
@@ -647,10 +657,12 @@ class Runner:
             if stack_gateup:
                 return cached
             return d["w1"], d["w3"], d["w2"]
+
         return fetch
 
-    def prefetch_experts(self, layer: int, experts, ns: str = "layers",
-                         *, stack_gateup: bool = False) -> None:
+    def prefetch_experts(
+        self, layer: int, experts, ns: str = "layers", *, stack_gateup: bool = False
+    ) -> None:
         """Warm the expert cache for one layer's activated experts in parallel."""
         if not experts or self._fake_experts:
             return
@@ -666,7 +678,8 @@ class Runner:
         if not missing:
             return
         loaded = self._expert_loader.load_experts_parallel(
-            missing, workers=self._expert_prefetch_workers)
+            missing, workers=self._expert_prefetch_workers
+        )
         for (prefix, ly, ex), d in loaded.items():
             key = (prefix, ly, ex)
             if key in self._expert_cache:
@@ -720,13 +733,23 @@ class Runner:
 
         return run
 
-    def moe(self, layer: int, x: mx.array, token_start: int = 0,
-            ns: str = "layers", top_k: int | None = None) -> mx.array:
+    def moe(
+        self,
+        layer: int,
+        x: mx.array,
+        token_start: int = 0,
+        ns: str = "layers",
+        top_k: int | None = None,
+    ) -> mx.array:
         # None -> the runner-wide override (Runner(top_k=...)), else config.
         if top_k is None:
             top_k = int(getattr(self, "_top_k", 6))
-        stack_gateup = (getattr(self, "_expert_gateup_stack", False) and ns == "layers"
-                        and x.shape[0] == 1 and not self._batch)
+        stack_gateup = (
+            getattr(self, "_expert_gateup_stack", False)
+            and ns == "layers"
+            and x.shape[0] == 1
+            and not self._batch
+        )
         base = f"mtp.{layer}" if ns == "mtp" else f"layers.{layer}"
         gate_w = self._dense[f"{base}.ffn.gate.weight"]
         gate_b = self._dense[f"{base}.ffn.gate.bias"]
@@ -740,11 +763,9 @@ class Runner:
             # tokens can exceed the cache and thrash LRU — skip those.
             # Lockstep batch decode keys off the union of every row instead.
             if self._batch:
-                self._last_route[(ns, layer_id)] = sorted(
-                    {int(e) for row in idx for e in row})
+                self._last_route[(ns, layer_id)] = sorted({int(e) for row in idx for e in row})
             elif len(idx) == 1:
-                self._last_route[(ns, layer_id)] = sorted(
-                    {int(e) for e in idx[0]})
+                self._last_route[(ns, layer_id)] = sorted({int(e) for e in idx[0]})
             # Backbone schema only records layers [0, n_layers); skip MTP drafts.
             if self._trace is not None and ns == "layers":
                 self._trace.router(layer_id, token_start, idx, w)
@@ -770,8 +791,7 @@ class Runner:
                             self._pre_attn_used += 1
                             self._pre_attn_used_bytes += nbytes
                             self.expert_loads += 1
-                            self._expert_touch(key, packed,
-                                               stack_gateup=stack_gateup)
+                            self._expert_touch(key, packed, stack_gateup=stack_gateup)
                     else:
                         self._pre_attn_wrong += 1
                         if payload is not None:
@@ -784,8 +804,7 @@ class Runner:
                             self._pre_attn_pack_worker_s += pack_s
                             self._pre_attn_wasted += 1
                             self._pre_attn_wasted_bytes += nbytes
-            self.prefetch_experts(layer_id, experts, ns=ns,
-                                  stack_gateup=stack_gateup)
+            self.prefetch_experts(layer_id, experts, ns=ns, stack_gateup=stack_gateup)
 
         # getattr: tests build Runner via __new__ and set only what they need.
         shared = None if getattr(self, "_no_shared", False) else self._shared_fn(layer, ns)
@@ -794,9 +813,11 @@ class Runner:
         # threads do SSD+pack only (no shared state). prefetch_fn is skipped in
         # pipeline mode (async submits replace it); expert_fn is used only for
         # per-Future fallback (no double-admit: failed Futures never admitted).
-        use_pipe = (bool(getattr(self, "_moe_pipeline", False))
-                    and not getattr(self, "_fake_experts", False)
-                    and not getattr(self, "_expert_pin_gather", False))
+        use_pipe = (
+            bool(getattr(self, "_moe_pipeline", False))
+            and not getattr(self, "_fake_experts", False)
+            and not getattr(self, "_expert_pin_gather", False)
+        )
         async_submit = None
         async_finalize = None
         if use_pipe:
@@ -825,17 +846,17 @@ class Runner:
                     pack_t0 = time.perf_counter()
                     out: dict = {}
                     nbytes = 0
-                    for role, wdata, sdata, (rows, pair_cols) in parts:
-                        nbytes += len(wdata) + len(sdata)
-                        out[role] = loader._pack_expert(wdata, sdata,
-                                                        rows, pair_cols)
+                    for role, wdata, sdata, bdata, shape, scale_shape in parts:
+                        nbytes += len(wdata) + len(sdata) + (len(bdata) if bdata else 0)
+                        out[role] = loader._role_from_parts(wdata, sdata, bdata, shape, scale_shape)
                     pack_s = time.perf_counter() - pack_t0
                     return out, nbytes, False, read_s, pack_s
 
                 return pool.submit(_work)
 
-            def async_finalize(layer_id: int, sorted_ids: list[int],
-                               saved: dict[int, tuple]) -> None:
+            def async_finalize(
+                layer_id: int, sorted_ids: list[int], saved: dict[int, tuple]
+            ) -> None:
                 # Replay baseline cache effects after overlapping I/O/QMM:
                 # prefetch touches initial hits, admits initial misses, then
                 # expert_fn performs its normal sorted lookup for every expert.
@@ -858,53 +879,60 @@ class Runner:
                         self._expert_touch(key)
                     else:
                         self.expert_loads += 1
-                        self._expert_touch(key, packed,
-                                           stack_gateup=stack_gateup)
+                        self._expert_touch(key, packed, stack_gateup=stack_gateup)
                 if any(not saved[ee][4] for ee in sorted_ids):
                     # The baseline parallel batch increments load_calls once.
                     loader.load_calls += 1
 
                 # Pass C: call the actual lookup. This handles experts evicted
                 # by Pass B exactly like baseline, including fallback I/O.
-                fetch = self._expert_fn(layer_id, ns,
-                                        stack_gateup=stack_gateup)
+                fetch = self._expert_fn(layer_id, ns, stack_gateup=stack_gateup)
                 for ee in sorted_ids:
                     fetch(int(ee))
 
         pinned_gather = None
-        if (getattr(self, "_expert_pin_gather", False) and ns == "layers"
-                and not getattr(self, "_fake_experts", False)):
+        if (
+            getattr(self, "_expert_pin_gather", False)
+            and ns == "layers"
+            and not getattr(self, "_fake_experts", False)
+        ):
+
             def pinned_gather(layer_id, activations, indices, route_weights):
                 entry = self._expert_pin_banks.get(layer_id)
                 if entry is None:
-                    raise RuntimeError(
-                        f"pinned expert bank for layer {layer_id} is not loaded")
+                    raise RuntimeError(f"pinned expert bank for layer {layer_id} is not loaded")
                 selected = set(map(int, indices.reshape(-1)))
                 if not (selected & entry["slots"].keys()):
                     return {}
                 result = F.gather_pinned_contributions(
-                    activations, indices, route_weights,
-                    entry["banks"], entry["slots"])
+                    activations, indices, route_weights, entry["banks"], entry["slots"]
+                )
                 self.expert_cache_hits += len(result)
                 return result
 
-        out = F.moe_layer(x, gate_w, gate_b,
-                          self._expert_fn(layer, ns,
-                                          stack_gateup=stack_gateup),
-                          shared, top_k, 10.0, hook, layer,
-                          prefetch_fn=prefetch,
-                          # Only lockstep decode has rows that are separate
-                          # sequences; a prefill's rows are one sequence's
-                          # tokens and must never be traded away.
-                          union_budget=(self._union_budget if self._batch else 0),
-                          union_strict=getattr(self, '_union_strict', False),
-                          route_stats=self._route_stats,
-                           pipeline=use_pipe,
-                           async_submit_fn=async_submit,
-                           async_finalize_fn=async_finalize,
-                           pinned_gather_fn=pinned_gather,
-                           stack_gateup=(stack_gateup
-                                         and not self._fake_experts))
+        out = F.moe_layer(
+            x,
+            gate_w,
+            gate_b,
+            self._expert_fn(layer, ns, stack_gateup=stack_gateup),
+            shared,
+            top_k,
+            10.0,
+            hook,
+            layer,
+            prefetch_fn=prefetch,
+            # Only lockstep decode has rows that are separate
+            # sequences; a prefill's rows are one sequence's
+            # tokens and must never be traded away.
+            union_budget=(self._union_budget if self._batch else 0),
+            union_strict=getattr(self, "_union_strict", False),
+            route_stats=self._route_stats,
+            pipeline=use_pipe,
+            async_submit_fn=async_submit,
+            async_finalize_fn=async_finalize,
+            pinned_gather_fn=pinned_gather,
+            stack_gateup=(stack_gateup and not self._fake_experts),
+        )
         return out
 
     def route_coverage(self) -> float:
@@ -940,12 +968,15 @@ class Runner:
             return None
         if self._prefetch_pool is None:
             from concurrent.futures import ThreadPoolExecutor
+
             self._prefetch_pool = ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="expert-warm")
+                max_workers=1, thread_name_prefix="expert-warm"
+            )
 
         def _work():
             loaded = self._expert_loader.load_experts_parallel(
-                specs, workers=self._expert_prefetch_workers)
+                specs, workers=self._expert_prefetch_workers
+            )
             for (prefix, ly, ex), d in loaded.items():
                 key = (prefix, ly, ex)
                 if key in self._expert_cache:
@@ -978,10 +1009,14 @@ class Runner:
         else:
             original, base = 0, cfg["rope_theta"]
         table = F.rope_freqs(
-            cfg["rope_head_dim"], cfg.get("max_seq_len") or 65536,
-            original, base,
-            cfg.get("rope_factor", 40.0), cfg.get("beta_fast", 32),
-            cfg.get("beta_slow", 1))
+            cfg["rope_head_dim"],
+            cfg.get("max_seq_len") or 65536,
+            original,
+            base,
+            cfg.get("rope_factor", 40.0),
+            cfg.get("beta_fast", 32),
+            cfg.get("beta_slow", 1),
+        )
         mx.eval(table)
         self._freqs[key] = table
         return table
@@ -1035,8 +1070,9 @@ class Runner:
         og = mx.einsum("sgd,grd->sgr", og, wo_a)
         return (og.reshape(n_rows, -1) @ self._dense[p + "wo_b.weight"].T).astype(mx.float32)
 
-    def _sparse_attn(self, q: mx.array, kv: mx.array, topk_idxs: mx.array,
-                     sink: mx.array, scale: float) -> mx.array:
+    def _sparse_attn(
+        self, q: mx.array, kv: mx.array, topk_idxs: mx.array, sink: mx.array, scale: float
+    ) -> mx.array:
         """Gather + online softmax + sink (sink feeds denominator only)."""
         # Stay on device: previous numpy path forced GPU->CPU every layer.
         dt = mx.bfloat16 if getattr(self, "_attn_bf16", False) else mx.float32
@@ -1056,13 +1092,11 @@ class Runner:
         else:
             kg = kvf[safe.reshape(-1)].reshape(m, -1, d)  # [m, k, d]
         scores = mx.einsum("mhd,mkd->mhk", qf, kg) * scale
-        scores = mx.where(mask[:, None, :], scores,
-                          mx.full(scores.shape, -1e30, dtype=dt))
+        scores = mx.where(mask[:, None, :], scores, mx.full(scores.shape, -1e30, dtype=dt))
         mrow = mx.max(scores, axis=-1, keepdims=True)
         exp_s = mx.exp(scores - mrow)
         exp_s = mx.where(mask[:, None, :], exp_s, mx.zeros_like(exp_s))
-        denom = mx.sum(exp_s, axis=-1, keepdims=True) + mx.exp(
-            sink_f[None, :, None] - mrow)
+        denom = mx.sum(exp_s, axis=-1, keepdims=True) + mx.exp(sink_f[None, :, None] - mrow)
         out = mx.einsum("mhk,mkd->mhd", exp_s / denom, kg)
         return out.astype(q.dtype)
 
@@ -1085,12 +1119,16 @@ class Runner:
         head_dim = cfg["head_dim"]
         rows = x.shape[0]
         if ratio == 1:
-            kv = x.astype(mx.float32) @ self._dense[p + "compressor.wkv.weight"].T \
-                if p + "compressor.wkv.weight" in self._dense else \
-                x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
-            norm_w = (self._dense[p + "compressor.norm.weight"]
-                      if p + "compressor.norm.weight" in self._dense
-                      else self._dense[p + "kv_norm.weight"])
+            kv = (
+                x.astype(mx.float32) @ self._dense[p + "compressor.wkv.weight"].T
+                if p + "compressor.wkv.weight" in self._dense
+                else x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T
+            )
+            norm_w = (
+                self._dense[p + "compressor.norm.weight"]
+                if p + "compressor.norm.weight" in self._dense
+                else self._dense[p + "kv_norm.weight"]
+            )
             return F.rmsnorm(kv, norm_w, 1e-20)
         wkv = self._dense[p + "compressor.wkv.weight"]
         wgate = self._dense[p + "compressor.wgate.weight"]
@@ -1109,8 +1147,9 @@ class Runner:
             self._kv_state[layer], self._score_state[layer] = st, sc
         if start_pos == 0:
             if self._batch:
-                raise RuntimeError("batched prefill is not supported; "
-                                   "prefill sequences one at a time")
+                raise RuntimeError(
+                    "batched prefill is not supported; prefill sequences one at a time"
+                )
             if rows >= ratio:
                 rem = rows % ratio
                 cut = rows - rem
@@ -1128,18 +1167,16 @@ class Runner:
                 return None
         elif self._batch:
             slot = start_pos % ratio
-            st = mx.concatenate([st[:, :slot], kv[:, None, :], st[:, slot + 1:]],
-                                axis=1)
-            sc = mx.concatenate([sc[:, :slot], score[:, None, :], sc[:, slot + 1:]],
-                                axis=1)
+            st = mx.concatenate([st[:, :slot], kv[:, None, :], st[:, slot + 1 :]], axis=1)
+            sc = mx.concatenate([sc[:, :slot], score[:, None, :], sc[:, slot + 1 :]], axis=1)
             self._kv_state[layer], self._score_state[layer] = st, sc
             if (start_pos + 1) % ratio != 0:
                 return None
             kv = (st * mx.softmax(sc, axis=1)).sum(axis=1)
         elif rows == 1:
             slot = start_pos % ratio
-            st = mx.concatenate([st[:slot], kv[:1], st[slot + 1:]], axis=0)
-            sc = mx.concatenate([sc[:slot], score[:1], sc[slot + 1:]], axis=0)
+            st = mx.concatenate([st[:slot], kv[:1], st[slot + 1 :]], axis=0)
+            sc = mx.concatenate([sc[:slot], score[:1], sc[slot + 1 :]], axis=0)
             self._kv_state[layer], self._score_state[layer] = st, sc
             if (start_pos + 1) % ratio != 0:
                 return None
@@ -1150,8 +1187,8 @@ class Runner:
             for i in range(rows):
                 pos = start_pos + i
                 slot = pos % ratio
-                st = mx.concatenate([st[:slot], kv[i:i + 1], st[slot + 1:]], axis=0)
-                sc = mx.concatenate([sc[:slot], score[i:i + 1], sc[slot + 1:]], axis=0)
+                st = mx.concatenate([st[:slot], kv[i : i + 1], st[slot + 1 :]], axis=0)
+                sc = mx.concatenate([sc[:slot], score[i : i + 1], sc[slot + 1 :]], axis=0)
                 if (pos + 1) % ratio == 0:
                     latents.append((st * mx.softmax(sc, axis=0)).sum(axis=0, keepdims=True))
             self._kv_state[layer], self._score_state[layer] = st, sc
@@ -1160,8 +1197,9 @@ class Runner:
             kv = mx.concatenate(latents, axis=0)
         return F.rmsnorm(kv, self._dense[p + "compressor.norm.weight"], 1e-20)
 
-    def _select_candidates(self, index_score: mx.array, compress_lens,
-                           topk_blocks: int, block_size: int) -> mx.array:
+    def _select_candidates(
+        self, index_score: mx.array, compress_lens, topk_blocks: int, block_size: int
+    ) -> mx.array:
         """Level-one block mask (exact port of select_candidate_blocks)."""
         logits = np.asarray(index_score)
         width = logits.shape[-1]
@@ -1187,8 +1225,9 @@ class Runner:
         mask = np.repeat(keep, block_size, axis=-1)[:, :width]
         return mx.array(mask)
 
-    def _run_indexer(self, layer: int, x: mx.array, qr: mx.array, latent,
-                     start_pos: int, seqlen: int) -> mx.array:
+    def _run_indexer(
+        self, layer: int, x: mx.array, qr: mx.array, latent, start_pos: int, seqlen: int
+    ) -> mx.array:
         """Indexer topk for index_source layers; others read shared topk.
 
         Non-owning indexers score against the shared index keys published
@@ -1206,21 +1245,25 @@ class Runner:
             k = F.rmsnorm(
                 latent.astype(mx.float32)
                 @ self._dense[p + "indexer.wk.weight"].astype(mx.float32).T,
-                self._dense[p + "indexer.k_norm.weight"], 1e-20)
+                self._dense[p + "indexer.k_norm.weight"],
+                1e-20,
+            )
             if self._batch:
                 n_lat = 1  # one new latent per sequence per step
             else:
                 n_lat = k.shape[0]
             if start_pos == 0:
-                kfreq = freqs_all[: n_lat * ratio:ratio][:n_lat]
+                kfreq = freqs_all[: n_lat * ratio : ratio][:n_lat]
             elif ratio == 1:
-                kfreq = freqs_all[start_pos:start_pos + n_lat]
+                kfreq = freqs_all[start_pos : start_pos + n_lat]
             else:
-                comps = [pos + 1 - ratio for pos in range(start_pos, start_pos + seqlen)
-                         if (pos + 1) % ratio == 0]
+                comps = [
+                    pos + 1 - ratio
+                    for pos in range(start_pos, start_pos + seqlen)
+                    if (pos + 1) % ratio == 0
+                ]
                 if len(comps) != n_lat:
-                    raise RuntimeError(
-                        f"index k rows {n_lat} vs completions {len(comps)}")
+                    raise RuntimeError(f"index k rows {n_lat} vs completions {len(comps)}")
                 kfreq = freqs_all[comps]
             k = mx.concatenate([k[..., :-rd], F.apply_rotary(k[..., -rd:], kfreq)], axis=-1)
             if self._batch:
@@ -1230,25 +1273,34 @@ class Runner:
             need = pos + n_lat
             axis = 1 if self._batch else 0
             if k_cache is None:
-                shape = ((n_rows, need + 64, index_dim) if self._batch
-                         else (need + 64, index_dim))
+                shape = (n_rows, need + 64, index_dim) if self._batch else (need + 64, index_dim)
                 k_cache = mx.zeros(shape)
                 mx.eval(k_cache)
             elif k_cache.shape[axis] < need:
-                pad_shape = ((n_rows, need - k_cache.shape[axis] + 64, index_dim)
-                             if self._batch else (need - k_cache.shape[axis] + 64, index_dim))
+                pad_shape = (
+                    (n_rows, need - k_cache.shape[axis] + 64, index_dim)
+                    if self._batch
+                    else (need - k_cache.shape[axis] + 64, index_dim)
+                )
                 k_cache = mx.concatenate([k_cache, mx.zeros(pad_shape)], axis=axis)
             if self._batch:
-                k_cache = mx.concatenate(
-                    [k_cache[:, :pos], k, k_cache[:, pos + n_lat:]], axis=1)
+                k_cache = mx.concatenate([k_cache[:, :pos], k, k_cache[:, pos + n_lat :]], axis=1)
             else:
-                k_cache = k_cache.at[pos:pos + n_lat].add(k - k_cache[pos:pos + n_lat])
+                k_cache = k_cache.at[pos : pos + n_lat].add(k - k_cache[pos : pos + n_lat])
             self._indexk[layer] = k_cache
             self._shared_indexk = k_cache
         q = (qr @ self._dense[p + "indexer.wq_b.weight"].astype(mx.float32).T).reshape(
-            n_rows, n_heads, index_dim)
-        q = mx.concatenate([q[..., :-rd], F.apply_rotary(
-            q[..., -rd:], self._freqs_for(layer)[start_pos:start_pos + seqlen])], axis=-1)
+            n_rows, n_heads, index_dim
+        )
+        q = mx.concatenate(
+            [
+                q[..., :-rd],
+                F.apply_rotary(
+                    q[..., -rd:], self._freqs_for(layer)[start_pos : start_pos + seqlen]
+                ),
+            ],
+            axis=-1,
+        )
         end_pos = start_pos + seqlen
         index_k = self._shared_indexk
         if index_k is None:
@@ -1259,16 +1311,16 @@ class Runner:
             index_k = index_k[:, : end_pos // max(ratio, 1)]
         else:
             index_k = index_k[: end_pos // max(ratio, 1)]
-        weights = (x.astype(mx.float32)
-                   @ self._dense[p + "indexer.weights_proj.weight"].astype(mx.float32).T)
+        weights = (
+            x.astype(mx.float32)
+            @ self._dense[p + "indexer.weights_proj.weight"].astype(mx.float32).T
+        )
         weights = weights * (index_dim**-0.5 * n_heads**-0.5)
         # GPU score: avoid per-layer GPU->CPU sync of full [S,H,T] tensor.
         if self._batch:
-            score_mx = mx.einsum("rhd,rtd->rht", q.astype(mx.float32),
-                                 index_k.astype(mx.float32))
+            score_mx = mx.einsum("rhd,rtd->rht", q.astype(mx.float32), index_k.astype(mx.float32))
         else:
-            score_mx = mx.einsum("shd,td->sht", q.astype(mx.float32),
-                                 index_k.astype(mx.float32))
+            score_mx = mx.einsum("shd,td->sht", q.astype(mx.float32), index_k.astype(mx.float32))
         score_mx = mx.maximum(score_mx, 0) * weights[:, :, None]
         # Opt-in GPU indexer Top-K (experimental, reversible, decode non-batch
         # only). For ordinary index-source layers, avoids transferring full
@@ -1277,25 +1329,23 @@ class Runner:
         # Only the argsort/top-k pipeline on synthetic score vectors has been
         # checked; full score-reduction parity and speed are unmeasured. Default
         # off; CPU path below unchanged.
-        if (getattr(self, "_indexer_gpu_topk", False) and start_pos > 0
-                and not self._batch):
+        if getattr(self, "_indexer_gpu_topk", False) and start_pos > 0 and not self._batch:
             _Tlen = int(score_mx.shape[2])
             _sc = mx.sum(score_mx, axis=1)
-            _cl = ((mx.arange(start_pos, start_pos + seqlen) + 1)
-                   // max(ratio, 1))[:, None]
-            _sc = mx.where(mx.arange(_Tlen)[None, :] >= _cl,
-                           mx.array(-float("inf")), _sc)
+            _cl = ((mx.arange(start_pos, start_pos + seqlen) + 1) // max(ratio, 1))[:, None]
+            _sc = mx.where(mx.arange(_Tlen)[None, :] >= _cl, mx.array(-float("inf")), _sc)
             _csrc = int(cfg.get("candidate_source_layer", -1))
             if layer == _csrc:
                 self._candidates = self._select_candidates(
-                    _sc, _cl, cfg["candidate_topk_blocks"],
-                    cfg["candidate_block_size"])
+                    _sc, _cl, cfg["candidate_topk_blocks"], cfg["candidate_block_size"]
+                )
             elif _csrc >= 0 and layer > _csrc:
                 _mask = self._candidates
                 if _mask.shape != _sc.shape:
                     raise RuntimeError(
                         f"candidate mask {_mask.shape} vs score {_sc.shape} "
-                        f"at layer {layer} start_pos {start_pos} seqlen {seqlen}")
+                        f"at layer {layer} start_pos {start_pos} seqlen {seqlen}"
+                    )
                 _sc = mx.where(_mask, _sc, mx.array(-float("inf")))
             _topk = min(int(cfg["index_topk"]), end_pos // max(ratio, 1))
             if _topk <= 0:
@@ -1319,20 +1369,23 @@ class Runner:
             compress_lens = cl
         else:
             # Per-query: query i at absolute pos start_pos+i sees (pos+1)//ratio groups.
-            cl = ((np.arange(start_pos, start_pos + seqlen) + 1)
-                  // max(ratio, 1))[:, None]
+            cl = ((np.arange(start_pos, start_pos + seqlen) + 1) // max(ratio, 1))[:, None]
             score = np.where(np.arange(score.shape[1]) >= cl, -np.inf, score)
             compress_lens = cl
         if layer == cfg.get("candidate_source_layer", -1):
             self._candidates = self._select_candidates(
-                mx.array(score), compress_lens, cfg["candidate_topk_blocks"],
-                cfg["candidate_block_size"])
+                mx.array(score),
+                compress_lens,
+                cfg["candidate_topk_blocks"],
+                cfg["candidate_block_size"],
+            )
         elif cfg.get("candidate_source_layer", -1) >= 0 and layer > cfg["candidate_source_layer"]:
             mask = np.asarray(self._candidates)
             if mask.shape != score.shape:
                 raise RuntimeError(
                     f"candidate mask {mask.shape} vs score {score.shape} "
-                    f"at layer {layer} start_pos {start_pos} seqlen {seqlen}")
+                    f"at layer {layer} start_pos {start_pos} seqlen {seqlen}"
+                )
             score = np.where(mask, score, -np.inf)
         topk = min(cfg["index_topk"], end_pos // max(ratio, 1))
         if topk <= 0:
@@ -1342,7 +1395,7 @@ class Runner:
         idx = np.argsort(-score, axis=-1, kind="stable")[:, :topk]
         idx = np.sort(idx, axis=-1)
         if start_pos == 0:
-            cl = (np.arange(1, seqlen + 1) // ratio)
+            cl = np.arange(1, seqlen + 1) // ratio
             out = np.where(idx < cl[:, None], idx, -1)
         else:
             out = np.where(idx < compress_lens, idx, -1)
@@ -1350,8 +1403,9 @@ class Runner:
         self._shared_topk = out_mx
         return out_mx
 
-    def indexer_topk(self, layer: int, x: mx.array, qr: mx.array, latent,
-                     start_pos: int, seqlen: int) -> mx.array:
+    def indexer_topk(
+        self, layer: int, x: mx.array, qr: mx.array, latent, start_pos: int, seqlen: int
+    ) -> mx.array:
         """Shared-topk dispatch: only index sources compute; rest reuse."""
         if layer not in self._config["index_source_layers"]:
             if self._shared_topk is None:
@@ -1370,11 +1424,18 @@ class Runner:
         n_rows = x.shape[0]
         B = self._batch
         seqlen = 1 if B else n_rows  # state-machine length (rows are sequences)
-        freqs = self._freqs_for(layer)[start_pos:start_pos + seqlen]
+        freqs = self._freqs_for(layer)[start_pos : start_pos + seqlen]
         _t = self._att_stats
         if _t is None:
-            _t = {"proj": 0.0, "kv": 0.0, "ring": 0.0, "compress": 0.0,
-                  "attn": 0.0, "out": 0.0, "build": 0.0}
+            _t = {
+                "proj": 0.0,
+                "kv": 0.0,
+                "ring": 0.0,
+                "compress": 0.0,
+                "attn": 0.0,
+                "out": 0.0,
+                "build": 0.0,
+            }
             self._att_stats = _t
         prof = bool(getattr(self, "_att_phase_prof", False))
         if prof:
@@ -1392,35 +1453,43 @@ class Runner:
             xb = x.astype(mx.bfloat16)
             qr = F.rmsnorm(
                 (xb @ self._dense[p + "wq_a.weight"].T).astype(mx.float32),
-                self._dense[p + "q_norm.weight"], 1e-20)
+                self._dense[p + "q_norm.weight"],
+                1e-20,
+            )
             kv_bf = xb @ self._dense[p + "wkv.weight"].T
-            kv_new = kv_bf.astype(mx.float32)
+            kv_new = F.rmsnorm(kv_bf.astype(mx.float32), self._dense[p + "kv_norm.weight"], 1e-20)
         else:
             wq_a = self._f32_weight(p + "_wqaf", p + "wq_a.weight")
             wkv = self._f32_weight(p + "_wkvf", p + "wkv.weight", drop=False)
             xf = x.astype(mx.float32)
-            qr = F.rmsnorm(xf @ wq_a.T,
-                           self._dense[p + "q_norm.weight"], 1e-20)
-            kv_new = xf @ wkv.T
+            qr = F.rmsnorm(xf @ wq_a.T, self._dense[p + "q_norm.weight"], 1e-20)
+            kv_new = F.rmsnorm(xf @ wkv.T, self._dense[p + "kv_norm.weight"], 1e-20)
         # bf16: an f32 @ bf16 matmul promotes the weight, and wq_b is 84 MiB
         # -- cast per layer per step. qr stays f32 for the indexer.
         q = (qr.astype(mx.bfloat16) @ self._dense[p + "wq_b.weight"].T).reshape(
-            n_rows, n_heads, head_dim)
+            n_rows, n_heads, head_dim
+        )
         q = mx.concatenate([q[..., :-rd], F.apply_rotary(q[..., -rd:], freqs)], axis=-1)
         t1 = time.perf_counter()
         _t["proj"] = _t.get("proj", 0.0) + t1 - t0
         if prof:
-            _te = time.perf_counter(); mx.eval(q)
-            _t["e_proj"] += time.perf_counter() - _te; t1 = time.perf_counter()
+            _te = time.perf_counter()
+            mx.eval(q)
+            _t["e_proj"] += time.perf_counter() - _te
+            t1 = time.perf_counter()
 
         kv_new = mx.concatenate(
-            [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs)], axis=-1)
+            [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs)], axis=-1
+        )
         t_kv = time.perf_counter()
         _t["kv"] = _t.get("kv", 0.0) + t_kv - t1
         ring = self._window.get(layer)
         if ring is None:
-            ring = (mx.zeros((B, win, head_dim), dtype=mx.bfloat16) if B
-                    else mx.zeros((win, head_dim), dtype=mx.bfloat16))
+            ring = (
+                mx.zeros((B, win, head_dim), dtype=mx.bfloat16)
+                if B
+                else mx.zeros((win, head_dim), dtype=mx.bfloat16)
+            )
             mx.eval(ring)
         if start_pos == 0:
             if B:
@@ -1430,21 +1499,24 @@ class Runner:
             else:
                 cutoff = seqlen % win
                 tail_new = kv_new[-win:].astype(mx.bfloat16)
-                ring = (mx.concatenate([tail_new[win - cutoff:], tail_new[:win - cutoff]], axis=0)
-                        if cutoff else tail_new)
+                ring = (
+                    mx.concatenate([tail_new[win - cutoff :], tail_new[: win - cutoff]], axis=0)
+                    if cutoff
+                    else tail_new
+                )
             window_kv = kv_new
             idxs = self._window_topk(win, seqlen, 0)
         elif B:
             # Lockstep batch: one token per sequence, all at start_pos.
             slot = start_pos % win
             kv_bf = kv_new.astype(mx.bfloat16)
-            ring = mx.concatenate(
-                [ring[:, :slot], kv_bf[:, None, :], ring[:, slot + 1:]], axis=1)
+            ring = mx.concatenate([ring[:, :slot], kv_bf[:, None, :], ring[:, slot + 1 :]], axis=1)
             window_kv = ring
             idxs = mx.broadcast_to(self._window_topk(win, 1, start_pos), (B, win))
         elif seqlen == 1:
             ring = ring.at[start_pos % win].add(
-                kv_new[0].astype(mx.bfloat16) - ring[start_pos % win])
+                kv_new[0].astype(mx.bfloat16) - ring[start_pos % win]
+            )
             window_kv = ring
             idxs = self._window_topk(win, 1, start_pos)
         else:
@@ -1463,21 +1535,23 @@ class Runner:
         t_ring = time.perf_counter()
         _t["ring"] = _t.get("ring", 0.0) + t_ring - t_kv
         if prof:
-            _te = time.perf_counter(); mx.eval(window_kv, topk_all)
-            _t["e_ring"] += time.perf_counter() - _te; t_ring = time.perf_counter()
+            _te = time.perf_counter()
+            mx.eval(window_kv, topk_all)
+            _t["e_ring"] += time.perf_counter() - _te
+            t_ring = time.perf_counter()
         if ratio:
             compress_len = (start_pos + seqlen) // ratio
             latent = None
             if layer in cfg["kv_source_layers"]:
                 latent = self._run_compressor(layer, x, start_pos)
                 if latent is not None:
-                    ck = self._register_compress(layer, self._rotate_latent(
-                        layer, latent, ratio, start_pos, seqlen), ratio)
+                    ck = self._register_compress(
+                        layer, self._rotate_latent(layer, latent, ratio, start_pos, seqlen), ratio
+                    )
                     self._shared_compress = ck
                 own = self._compress.get(layer)
                 if own is None:
-                    own = (mx.zeros((B, 0, cfg["head_dim"])) if B
-                           else mx.zeros((0, cfg["head_dim"])))
+                    own = mx.zeros((B, 0, cfg["head_dim"])) if B else mx.zeros((0, cfg["head_dim"]))
                     mx.eval(own)
                 self._shared_compress = own
             ck = self._shared_compress
@@ -1487,36 +1561,42 @@ class Runner:
                     ck = ck[:, :compress_len]
                     window_kv = mx.concatenate([window_kv, ck], axis=1)
                     topk_all = self._shift_compress_idxs(
-                        idxs, cidx, int(window_kv.shape[1]) - int(ck.shape[1]))
+                        idxs, cidx, int(window_kv.shape[1]) - int(ck.shape[1])
+                    )
                 else:
                     ck = ck[:compress_len]
                     window_kv = mx.concatenate([window_kv, ck], axis=0)
                     topk_all = self._shift_compress_idxs(
-                        idxs, cidx, int(window_kv.shape[0]) - int(ck.shape[0]))
+                        idxs, cidx, int(window_kv.shape[0]) - int(ck.shape[0])
+                    )
         t_c = time.perf_counter()
         _t["compress"] = _t.get("compress", 0.0) + t_c - t_ring
         if prof:
-            _te = time.perf_counter(); mx.eval(window_kv, topk_all)
-            _t["e_c"] += time.perf_counter() - _te; t_c = time.perf_counter()
-            _t["compress"] -= (time.perf_counter() - _te)
+            _te = time.perf_counter()
+            mx.eval(window_kv, topk_all)
+            _t["e_c"] += time.perf_counter() - _te
+            t_c = time.perf_counter()
+            _t["compress"] -= time.perf_counter() - _te
         sink = self._dense[p + "attn_sink"].astype(mx.float32)
         n_compress = int(ck.shape[-2]) if ratio and ck is not None else 0
         out = self._sparse_attn(q, window_kv, topk_all, sink, head_dim**-0.5)
         t_a = time.perf_counter()
         _t["attn"] = _t.get("attn", 0.0) + t_a - t_c
         if prof:
-            _te = time.perf_counter(); mx.eval(out)
-            _t["e_attn"] += time.perf_counter() - _te; t_a = time.perf_counter()
+            _te = time.perf_counter()
+            mx.eval(out)
+            _t["e_attn"] += time.perf_counter() - _te
+            t_a = time.perf_counter()
         if self._trace is not None:
-            self._trace.kv(layer, start_pos, n_compress,
-                           int(np.asarray(topk_all).shape[-1]))
+            self._trace.kv(layer, start_pos, n_compress, int(np.asarray(topk_all).shape[-1]))
         out = mx.concatenate([out[..., :-rd], self._unrotary(out[..., -rd:], freqs)], axis=-1)
         result = self._o_proj(out, p, n_rows, cfg)
         t_e = time.perf_counter()
         _t["out"] = _t.get("out", 0.0) + t_e - t_a
         _t["build"] = _t.get("build", 0.0) + t_e - t0
         if prof:
-            _te = time.perf_counter(); mx.eval(result)
+            _te = time.perf_counter()
+            mx.eval(result)
             _t["e_out"] += time.perf_counter() - _te
         return result
 
@@ -1527,7 +1607,9 @@ class Runner:
         right = np.where(right >= 0, right + base, -1)
         return mx.array(np.concatenate([left, right], axis=-1).astype(np.int32))
 
-    def _rotate_latent(self, layer: int, latent: mx.array, ratio: int, start_pos: int, seqlen: int) -> mx.array:
+    def _rotate_latent(
+        self, layer: int, latent: mx.array, ratio: int, start_pos: int, seqlen: int
+    ) -> mx.array:
         """Rotate each latent row with its group-start position frequencies."""
         rd = self._config["rope_head_dim"]
         freqs_all = self._freqs_for(layer)
@@ -1536,14 +1618,18 @@ class Runner:
             rows = np.minimum(np.arange(n) * ratio, freqs_all.shape[0] - 1)
             freqs = mx.array(np.asarray(freqs_all)[rows])
         elif ratio == 1:
-            freqs = freqs_all[start_pos:start_pos + n]
+            freqs = freqs_all[start_pos : start_pos + n]
         else:
-            rows = [pos + 1 - ratio for pos in range(start_pos, start_pos + seqlen)
-                    if (pos + 1) % ratio == 0]
+            rows = [
+                pos + 1 - ratio
+                for pos in range(start_pos, start_pos + seqlen)
+                if (pos + 1) % ratio == 0
+            ]
             if len(rows) != n:
                 raise RuntimeError(
                     f"latent rows {n} vs completions {len(rows)} "
-                    f"start_pos={start_pos} seqlen={seqlen} ratio={ratio}")
+                    f"start_pos={start_pos} seqlen={seqlen} ratio={ratio}"
+                )
             freqs = mx.array(np.asarray(freqs_all)[rows])
         tail = F.apply_rotary(latent[..., -rd:], freqs)
         return mx.concatenate([latent[..., :-rd], tail], axis=-1)
@@ -1566,8 +1652,9 @@ class Runner:
         return cache
 
     # -- engram -----------------------------------------------------------------
-    def _engram_hash_ids(self, token_ids: list[int], start_pos: int,
-                         row: int = 0, batched: bool = False):
+    def _engram_hash_ids(
+        self, token_ids: list[int], start_pos: int, row: int = 0, batched: bool = False
+    ):
         """Exact upstream hashes (torch CPU): [L, n_engram_layers, n_cols].
 
         ``row`` routes a single-sequence prefill into that sequence's row of
@@ -1578,11 +1665,16 @@ class Runner:
         """
         import sys as _sys
 
-        snap = str(Path(__file__).resolve().parents[2] / "upstream" / (
-            "DeepSeek-V4.1-Flash-1017"
-            if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
-            else "DeepSeek-V4.1-Flash"
-        ) / "inference")
+        snap = str(
+            Path(__file__).resolve().parents[2]
+            / "upstream"
+            / (
+                "DeepSeek-V4.1-Flash-1017"
+                if os.environ.get("DEEPSEEKER_VARIANT") == "1017"
+                else "DeepSeek-V4.1-Flash"
+            )
+            / "inference"
+        )
         if snap not in _sys.path:
             _sys.path.insert(0, snap)
         import engram as _up
@@ -1618,7 +1710,7 @@ class Runner:
         ids = _torch.tensor([token_ids])
         cache = self._hash_state.cache
         if row:
-            self._hash_state.cache = cache[row:row + 1]
+            self._hash_state.cache = cache[row : row + 1]
         try:
             with _torch.inference_mode():
                 hashes = self._hash_state(ids, start_pos)
@@ -1634,8 +1726,9 @@ class Runner:
         rows = self._engram_cache.fetch_rows(layer, [int(row_id)])
         w_raw = np.frombuffer(rows[0][0], dtype=np.uint8)
         s_raw = np.frombuffer(rows[0][1], dtype=np.uint8)
-        return (E4M3_TABLE[w_raw.astype(np.int64)] * np.repeat(
-            decode_u8m0(s_raw), 32)).astype(np.float32)
+        return (E4M3_TABLE[w_raw.astype(np.int64)] * np.repeat(decode_u8m0(s_raw), 32)).astype(
+            np.float32
+        )
 
     def _engram_numpy(self, layer: int) -> tuple[np.ndarray, np.ndarray]:
         """(wkv f32, q*k f32) for one engram layer, materialized once.
@@ -1648,16 +1741,17 @@ class Runner:
         if cached is None:
             wkv = np.asarray(
                 self._dense[f"layers.{layer}.engram.wkv.weight"].astype(mx.float32),
-                dtype=np.float32)
-            q_w = np.asarray(
-                self._dense[f"layers.{layer}.engram.q_weight"].astype(mx.float32))
-            k_w = np.asarray(
-                self._dense[f"layers.{layer}.engram.k_weight"].astype(mx.float32))
+                dtype=np.float32,
+            )
+            q_w = np.asarray(self._dense[f"layers.{layer}.engram.q_weight"].astype(mx.float32))
+            k_w = np.asarray(self._dense[f"layers.{layer}.engram.k_weight"].astype(mx.float32))
             cached = (wkv, q_w * k_w)
             self._engram_np[layer] = cached
         return cached
 
-    def engram_forward(self, layer: int, start_pos: int, x: mx.array, hash_ids: np.ndarray) -> mx.array:
+    def engram_forward(
+        self, layer: int, start_pos: int, x: mx.array, hash_ids: np.ndarray
+    ) -> mx.array:
         """Exact Engram math: embed rows -> wkv -> gated add into stream.
 
         The row gather and the constant wkv matmul stay on numpy (they only
@@ -1681,8 +1775,7 @@ class Runner:
         s_raw = np.frombuffer(b"".join(p[1] for p in fetched), dtype=np.uint8)
         w_raw = w_raw.reshape(len(uniq), -1)
         s_raw = s_raw.reshape(len(uniq), -1)
-        dec = (E4M3_TABLE[w_raw.astype(np.int64)]
-               * np.repeat(decode_u8m0(s_raw), 32, axis=-1))
+        dec = E4M3_TABLE[w_raw.astype(np.int64)] * np.repeat(decode_u8m0(s_raw), 32, axis=-1)
         rows = dec[inv].reshape(shape[0], shape[1], -1)
         self._ph_tick("f_eng_rows")
         kv = rows.reshape(rows.shape[0], -1).astype(np.float32)
@@ -1696,7 +1789,7 @@ class Runner:
         kv_mx = mx.matmul(mx.array(kv), wkv_mx)
         self._ph_tick("f_eng_gemm", kv_mx)
         key = kv_mx[..., : hc * dim].reshape(-1, hc, dim)
-        value = kv_mx[..., hc * dim:].reshape(-1, 1, dim)
+        value = kv_mx[..., hc * dim :].reshape(-1, 1, dim)
         w = self._engram_mx.get(layer)
         if w is None:
             w = mx.array(weight.astype(np.float32))
@@ -1705,7 +1798,7 @@ class Runner:
         h = x.astype(mx.float32)
         key = key.astype(mx.float32)
         rstd = mx.rsqrt((h * h).mean(-1) + eps) * mx.rsqrt((key * key).mean(-1) + eps)
-        dot = ((h * w * key).sum(-1)) * rstd * (dim ** -0.5)
+        dot = ((h * w * key).sum(-1)) * rstd * (dim**-0.5)
         mag = mx.sqrt(mx.maximum(mx.abs(dot), 1e-6))
         gate = mx.sigmoid(mx.where(dot >= 0, mag, -mag))
         out = h + gate[..., None] * value
@@ -1762,8 +1855,8 @@ class Runner:
             return self._skip_block_set
         cand = cfg.get("candidate_source_layer", -1)
         self._skip_block_set = frozenset(cfg.get("index_source_layers", ())) | (
-            frozenset([int(cand)]) if cand is not None and cand >= 0
-            else frozenset())
+            frozenset([int(cand)]) if cand is not None and cand >= 0 else frozenset()
+        )
 
     def _all_blocks_bypassed(self, cfg: dict) -> bool:
         """True when the whole layer stack takes the whole-Block early-return."""
@@ -1772,22 +1865,28 @@ class Runner:
             sb = int(getattr(self, "_skip_block", 0))
             req = self._skip_block_required(cfg) if sb else frozenset()
             cached = bool(sb) and all(
-                layer % sb == 0 and layer not in req
-                for layer in range(cfg["n_layers"]))
+                layer % sb == 0 and layer not in req for layer in range(cfg["n_layers"])
+            )
             self._all_bypassed = bool(cached)
         return self._all_bypassed
 
-    def block(self, layer: int, x: mx.array, start_pos: int, pre_mix: mx.array,
-              ns: str = "layers", main_x: mx.array | None = None,
-              top_k: int | None = None) -> tuple[mx.array, mx.array]:
+    def block(
+        self,
+        layer: int,
+        x: mx.array,
+        start_pos: int,
+        pre_mix: mx.array,
+        ns: str = "layers",
+        main_x: mx.array | None = None,
+        top_k: int | None = None,
+    ) -> tuple[mx.array, mx.array]:
         """One Block: hc mixes -> attn -> hc_post -> hc mixes -> MoE -> hc_post.
 
         ns='mtp' uses mtp.{layer}. weights; main_x routes to DSparkAttention.
         """
         cfg = self._config
         sb = getattr(self, "_skip_block", 0) if ns == "layers" else 0
-        if (sb and layer % sb == 0
-                and layer not in self._skip_block_required(cfg)):
+        if sb and layer % sb == 0 and layer not in self._skip_block_required(cfg):
             # Whole-Block bypass: the layer is the identity, so it reads no
             # weights at all. pre_mix carries forward untouched -- the next
             # Block's hc_pre still wants a [S, hc_mult] mix, and shapes are
@@ -1797,51 +1896,63 @@ class Runner:
         rp = getattr(self, "_route_pred", None)
         if rp is not None:
             rp.stash("x0", x)
-        p = (f"mtp.{layer}." if ns == "mtp" else f"layers.{layer}.")
+        p = f"mtp.{layer}." if ns == "mtp" else f"layers.{layer}."
         hc = cfg["hc_mult"]
         eps = cfg.get("norm_eps", 1e-20)
-        iters = (getattr(self, "_hc_iters", 0)
-                 or int(cfg.get("hc_sinkhorn_iters", 20)))
+        iters = getattr(self, "_hc_iters", 0) or int(cfg.get("hc_sinkhorn_iters", 20))
         hc_eps = cfg.get("hc_eps", 1e-6)
         attn_pre, attn_post, attn_comb = F.hc_mixes(
-            x, self._dense[p + "hc_attn_fn"],
-            self._dense[p + "hc_attn_scale"], self._dense[p + "hc_attn_base"],
-            hc, eps, iters, hc_eps)
+            x,
+            self._dense[p + "hc_attn_fn"],
+            self._dense[p + "hc_attn_scale"],
+            self._dense[p + "hc_attn_base"],
+            hc,
+            eps,
+            iters,
+            hc_eps,
+        )
         xpre = F.hc_pre(x, pre_mix)
         if rp is not None:
             rp.stash("xpre", xpre)
         pre_route_candidates = []
-        if (self._pre_attn_prefetch_enabled and not self._moe_pipeline
-                and ns == "layers" and start_pos > 0
-                and xpre.ndim == 2 and xpre.shape[0] == 1):
+        if (
+            self._pre_attn_prefetch_enabled
+            and not self._moe_pipeline
+            and ns == "layers"
+            and start_pos > 0
+            and xpre.ndim == 2
+            and xpre.shape[0] == 1
+        ):
             gate_w = self._dense[p + "ffn.gate.weight"]
             gate_b = self._dense[p + "ffn.gate.bias"]
-            pred_scores = (xpre.astype(mx.float32)
-                           @ gate_w.astype(mx.float32).T
-                           + gate_b.astype(mx.float32))
+            pred_scores = xpre.astype(mx.float32) @ gate_w.astype(mx.float32).T + gate_b.astype(
+                mx.float32
+            )
             mx.eval(pred_scores)
             scores_np = np.asarray(pred_scores).reshape(-1)
-            candidate_k = min(max(1, int(self._pre_attn_top_k)), 6,
-                              scores_np.size)
+            candidate_k = min(max(1, int(self._pre_attn_top_k)), 6, scores_np.size)
             candidate_ids = np.argpartition(scores_np, -candidate_k)[-candidate_k:]
-            candidate_ids = candidate_ids[np.argsort(
-                scores_np[candidate_ids])[::-1]]
+            candidate_ids = candidate_ids[np.argsort(scores_np[candidate_ids])[::-1]]
             for candidate_id in candidate_ids:
                 expert = int(candidate_id)
                 self._pre_attn_predictions += 1
                 pre_route_key = (ns, layer, expert)
-                cache_hit = (pre_route_key in self._expert_cache
-                             or pre_route_key in self._expert_pinned)
+                cache_hit = (
+                    pre_route_key in self._expert_cache or pre_route_key in self._expert_pinned
+                )
                 if cache_hit:
                     self._pre_attn_cache_hits += 1
                     future = None
                 else:
                     self._pre_attn_reads += 1
                     future = self._submit_pre_attn_expert(layer, expert)
-                pre_route_candidates.append({
-                    "expert": expert, "future": future,
-                    "cache_hit": cache_hit,
-                })
+                pre_route_candidates.append(
+                    {
+                        "expert": expert,
+                        "future": future,
+                        "cache_hit": cache_hit,
+                    }
+                )
         xin = F.rmsnorm(xpre, self._dense[p + "attn_norm.weight"], cfg.get("norm_eps", 1e-20))
         if rp is not None:
             rp.stash("xin", xin)
@@ -1854,9 +1965,15 @@ class Runner:
         x = F.hc_post(xa, x, attn_post, attn_comb)
         self._ph_tick("post1", x)
         ffn_pre, ffn_post, ffn_comb = F.hc_mixes(
-            x, self._dense[p + "hc_ffn_fn"],
-            self._dense[p + "hc_ffn_scale"], self._dense[p + "hc_ffn_base"],
-            hc, eps, iters, hc_eps)
+            x,
+            self._dense[p + "hc_ffn_fn"],
+            self._dense[p + "hc_ffn_scale"],
+            self._dense[p + "hc_ffn_base"],
+            hc,
+            eps,
+            iters,
+            hc_eps,
+        )
         xin2 = F.hc_pre(x, attn_pre)
         xin2 = F.rmsnorm(xin2, self._dense[p + "ffn_norm.weight"], cfg.get("norm_eps", 1e-20))
         self._ph_tick("hc2", ffn_pre, ffn_post, ffn_comb, xin2)
@@ -1864,8 +1981,7 @@ class Runner:
             self._pre_attn_pending[(ns, layer)] = {
                 "candidates": pre_route_candidates,
             }
-        skip = (getattr(self, "_skip_every", 0)
-                and ns == "layers" and layer % self._skip_every == 0)
+        skip = getattr(self, "_skip_every", 0) and ns == "layers" and layer % self._skip_every == 0
         if skip:
             # Bypass the MoE sublayer entirely: attention output stands, and
             # ffn_pre still feeds the next layer's hc pipeline.
@@ -1876,9 +1992,14 @@ class Runner:
         self._ph_tick("post2", x)
         return x, ffn_pre
 
-    def forward(self, token_ids: list[int] | mx.array, start_pos: int,
-                want_main: bool = False, *,
-                scale_invariant: bool = False) -> mx.array | tuple[mx.array, mx.array]:
+    def forward(
+        self,
+        token_ids: list[int] | mx.array,
+        start_pos: int,
+        want_main: bool = False,
+        *,
+        scale_invariant: bool = False,
+    ) -> mx.array | tuple[mx.array, mx.array]:
         """Text path: embed -> hc expand -> [engram] 40 blocks -> norm -> head.
 
         want_main also returns cat of target-layer (37,38,39) mean-pooled hiddens
@@ -1902,12 +2023,15 @@ class Runner:
         # behind compute instead of adding to the step.
         warm_future = self.prefetch_last_routes()
         engram_on = bool(cfg.get("engram_layer_ids")) and not self._no_engram
-        if (not engram_on and not want_main and warm_future is None
-                and self._all_blocks_bypassed(cfg)):
+        if (
+            not engram_on
+            and not want_main
+            and warm_future is None
+            and self._all_blocks_bypassed(cfg)
+        ):
             mt = self._composed_head()
             if mt is not None:
-                ids = (token_ids if isinstance(token_ids, mx.array)
-                       else mx.array(token_ids))
+                ids = token_ids if isinstance(token_ids, mx.array) else mx.array(token_ids)
                 logits = mt[ids]
                 self._ph_tick("f_embed", logits)
                 self._ph_tick("f_hash")
@@ -1935,8 +2059,9 @@ class Runner:
         # sync is pure overhead on the decode hot path. It was ~0.4ms of the
         # 0.92ms/step keep=0 floor. Keep it only when something downstream
         # really does inspect h (engram) or when a phase clock needs it.
-        if (getattr(self, "_phase", None) is not None
-                or (cfg.get("engram_layer_ids") and not self._no_engram)):
+        if getattr(self, "_phase", None) is not None or (
+            cfg.get("engram_layer_ids") and not self._no_engram
+        ):
             mx.eval(h, pre_mix)
         self._ph_tick("f_embed", h, pre_mix)
         hashes = None
@@ -1944,16 +2069,15 @@ class Runner:
             # Skipping the hash also skips engram_forward below (hashes is
             # the only gate), so both the torch-CPU ngram hashing and the
             # row fetch/dequant/wkv/gate disappear together.
-            hashes = self._engram_hash_ids(token_ids, start_pos,
-                                           row=self._hash_row,
-                                           batched=bool(self._batch))
+            hashes = self._engram_hash_ids(
+                token_ids, start_pos, row=self._hash_row, batched=bool(self._batch)
+            )
         targets = set(cfg.get("dspark_target_layer_ids") or ())
         self._ph_tick("f_hash")
         if warm_future is not None:
             warm_future.result()  # block only once, after embed/engram setup
         main_parts: list[mx.array] = []
-        if (hashes is None and not want_main
-                and self._all_blocks_bypassed(cfg)):
+        if hashes is None and not want_main and self._all_blocks_bypassed(cfg):
             # Every layer would take the whole-Block early-return, so building
             # 40 per-layer f-strings and guard calls buys nothing. keep=0.
             self._ph_tick("skip_block")
@@ -1969,8 +2093,7 @@ class Runner:
                 self._ph_tick("f_eng_gate", h)
             if want_main and layer in targets:
                 main_parts.append(mx.mean(h, axis=1))  # [S, dim]
-            h, pre_mix = self.block(layer, h, start_pos, pre_mix,
-                                    top_k=self._top_k)
+            h, pre_mix = self.block(layer, h, start_pos, pre_mix, top_k=self._top_k)
         final = F.hc_pre(h, pre_mix)
         self._ph_tick("f_tail", final)
         logits = self.head_logits(final, scale_invariant=scale_invariant)
@@ -1980,8 +2103,9 @@ class Runner:
             return logits, main_hidden
         return logits
 
-    def dspark_attention(self, stage: int, x: mx.array, start_pos: int,
-                         main_x: mx.array) -> mx.array:
+    def dspark_attention(
+        self, stage: int, x: mx.array, start_pos: int, main_x: mx.array
+    ) -> mx.array:
         """DSparkAttention: window ring seeded by main_kv; draft queries only.
 
         compress_ratio == 0 (window-only). start_pos==0 seeds the ring from
@@ -1992,15 +2116,12 @@ class Runner:
         n_heads, head_dim = cfg["n_heads"], cfg["head_dim"]
         rd = cfg["rope_head_dim"]
         win = getattr(self, "_window_size", 0) or cfg["window_size"]
-        freqs_m = self._freqs_for(stage, "mtp")[start_pos:start_pos + main_x.shape[0]]
+        freqs_m = self._freqs_for(stage, "mtp")[start_pos : start_pos + main_x.shape[0]]
         # main_kv from main_x (projected target hidden), roped at main positions
         kv_norm = self._dense[p + "kv_norm.weight"]
         eps = cfg.get("norm_eps", 1e-20)
-        mkv = F.rmsnorm(
-            main_x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T,
-            kv_norm, eps)
-        mkv = mx.concatenate(
-            [mkv[..., :-rd], F.apply_rotary(mkv[..., -rd:], freqs_m)], axis=-1)
+        mkv = F.rmsnorm(main_x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T, kv_norm, eps)
+        mkv = mx.concatenate([mkv[..., :-rd], F.apply_rotary(mkv[..., -rd:], freqs_m)], axis=-1)
         ring = self._mtp_window.get(stage)
         if ring is None:
             ring = mx.zeros((win, head_dim), dtype=mx.bfloat16)
@@ -2012,26 +2133,29 @@ class Runner:
             else:
                 cutoff = seqlen % win
                 tail = mkv[-win:].astype(mx.bfloat16)
-                ring = (mx.concatenate([tail[win - cutoff:], tail[:win - cutoff]], axis=0)
-                        if cutoff else tail)
+                ring = (
+                    mx.concatenate([tail[win - cutoff :], tail[: win - cutoff]], axis=0)
+                    if cutoff
+                    else tail
+                )
             self._mtp_window[stage] = ring
             return x
         block = int(x.shape[0])
         seqlen = int(main_x.shape[0])
-        freqs_d = self._freqs_for(stage, "mtp")[start_pos + seqlen:start_pos + seqlen + block]
-        qr = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].T,
-                       self._dense[p + "q_norm.weight"], 1e-20)
-        q = (qr @ self._dense[p + "wq_b.weight"].T).reshape(
-            block, n_heads, head_dim)
+        freqs_d = self._freqs_for(stage, "mtp")[start_pos + seqlen : start_pos + seqlen + block]
+        qr = F.rmsnorm(
+            x.astype(mx.float32) @ self._dense[p + "wq_a.weight"].T,
+            self._dense[p + "q_norm.weight"],
+            1e-20,
+        )
+        q = (qr @ self._dense[p + "wq_b.weight"].T).reshape(block, n_heads, head_dim)
         q = mx.concatenate([q[..., :-rd], F.apply_rotary(q[..., -rd:], freqs_d)], axis=-1)
-        kv_new = F.rmsnorm(
-            x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T,
-            kv_norm, eps)
+        kv_new = F.rmsnorm(x.astype(mx.float32) @ self._dense[p + "wkv.weight"].T, kv_norm, eps)
         kv_new = mx.concatenate(
-            [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs_d)], axis=-1)
+            [kv_new[..., :-rd], F.apply_rotary(kv_new[..., -rd:], freqs_d)], axis=-1
+        )
         # write single main_kv row (decode seqlen==1) into ring at start_pos
-        ring = ring.at[start_pos % win].add(
-            mkv[0].astype(mx.bfloat16) - ring[start_pos % win])
+        ring = ring.at[start_pos % win].add(mkv[0].astype(mx.bfloat16) - ring[start_pos % win])
         self._mtp_window[stage] = ring
         hist = min(win, start_pos + 1)
         kv_all = mx.concatenate([ring, kv_new.astype(mx.bfloat16)], axis=0)
@@ -2067,7 +2191,7 @@ class Runner:
             if hash_state is not None:
                 if not 0 <= hash_row < hash_state.cache.shape[0]:
                     raise RuntimeError("Engram hash row is outside its state cache")
-                hash_row_cache = hash_state.cache[hash_row:hash_row + 1].clone()
+                hash_row_cache = hash_state.cache[hash_row : hash_row + 1].clone()
             snap["_hash_state_ref"] = hash_state
             snap["_hash_state_row"] = hash_row
             snap["_hash_state_row_cache"] = hash_row_cache
@@ -2093,10 +2217,10 @@ class Runner:
             else:
                 row = snap["_hash_state_row"]
                 cache = snap["_hash_state_row_cache"]
-                if cache is None or hash_state.cache[row:row + 1].shape != cache.shape:
+                if cache is None or hash_state.cache[row : row + 1].shape != cache.shape:
                     raise RuntimeError("Engram hash-state snapshot is invalid")
                 self._hash_state = hash_state
-                hash_state.cache[row:row + 1].copy_(cache)
+                hash_state.cache[row : row + 1].copy_(cache)
                 self._hash_ncols = snap["_hash_ncols"]
 
     def reset_seq_state(self) -> None:
@@ -2132,33 +2256,37 @@ class Runner:
             for s in snaps[1:]:
                 if set(s[key]) != layers:
                     raise ValueError(f"inconsistent {key} layers across batch")
-            merged = {ly: mx.stack([s[key][ly] for s in snaps], axis=0)
-                      for ly in layers}
+            merged = {ly: mx.stack([s[key][ly] for s in snaps], axis=0) for ly in layers}
             setattr(self, "_" + key, merged)
         # Per-row state stacks cleanly. shared_topk / candidates are shaped by
         # the prefill row count, not the batch, so they are dropped and rebuilt
         # on the first batch step (layer 2 owns both).
         for key in ("shared_indexk", "shared_compress"):
             vals = [s[key] for s in snaps]
-            setattr(self, "_" + key, None if any(v is None for v in vals)
-                    else mx.stack(vals, axis=0))
+            setattr(
+                self, "_" + key, None if any(v is None for v in vals) else mx.stack(vals, axis=0)
+            )
         self._shared_topk = None
         self._candidates = None
         self._last_route.clear()
         self._expert_protected = set()
         self._expert_used_now = set()
         self._batch = n
-        mx.eval(*[a for key in self._BATCH_STATE_KEYS
-                  for a in getattr(self, "_" + key).values()])
+        mx.eval(*[a for key in self._BATCH_STATE_KEYS for a in getattr(self, "_" + key).values()])
 
     def end_batch(self) -> None:
         """Leave batch mode; per-sequence caches are dropped."""
         self._batch = 0
         self.reset_seq_state()
 
-    def generate_batch(self, prompts: list[list[int]], max_new_tokens: int,
-                       force_tokens: list[list[int]] | None = None,
-                       record_top: int = 0, dedup: bool = False) -> dict:
+    def generate_batch(
+        self,
+        prompts: list[list[int]],
+        max_new_tokens: int,
+        force_tokens: list[list[int]] | None = None,
+        record_top: int = 0,
+        dedup: bool = False,
+    ) -> dict:
         """Prefill each sequence on its own, then decode them lockstep together.
 
         Every prompt must be the same length: positions are shared across the
@@ -2231,13 +2359,19 @@ class Runner:
         pre_io, pre_bytes, pre_calls = ld.io_s, ld.bytes_read, ld.load_calls
         pre_pipe_read = ld.pipeline_read_worker_s
         pre_pipe_pack = ld.pipeline_pack_worker_s
-        pre_route = (self._pre_attn_predictions, self._pre_attn_cache_hits,
-                     self._pre_attn_correct, self._pre_attn_wrong,
-                     self._pre_attn_reads, self._pre_attn_used,
-                     self._pre_attn_used_bytes, self._pre_attn_wasted,
-                     self._pre_attn_wasted_bytes,
-                     self._pre_attn_read_worker_s,
-                     self._pre_attn_pack_worker_s)
+        pre_route = (
+            self._pre_attn_predictions,
+            self._pre_attn_cache_hits,
+            self._pre_attn_correct,
+            self._pre_attn_wrong,
+            self._pre_attn_reads,
+            self._pre_attn_used,
+            self._pre_attn_used_bytes,
+            self._pre_attn_wasted,
+            self._pre_attn_wasted_bytes,
+            self._pre_attn_read_worker_s,
+            self._pre_attn_pack_worker_s,
+        )
         pre_hits, pre_loads = self.expert_cache_hits, self.expert_loads
         self._route_stats = {"coverage": 0.0, "calls": 0.0}
         tops: list[tuple[np.ndarray, np.ndarray]] = []
@@ -2251,14 +2385,12 @@ class Runner:
         # A throwaway forward is not state-free when Engram is enabled: its
         # upstream NgramHashState advances in place. Keep golden decoding
         # intact and include first-dispatch compile cost in this case.
-        warmup_safe = not (self._config.get("engram_layer_ids")
-                           and not self._no_engram)
-        if (max_new_tokens and getattr(self, "_phase", None) is None
-                and warmup_safe):
+        warmup_safe = not (self._config.get("engram_layer_ids") and not self._no_engram)
+        if max_new_tokens and getattr(self, "_phase", None) is None and warmup_safe:
             warm_ids = mx.array([nxt[r] for r in reps])
-            warm = self.forward(warm_ids, pos,
-                                scale_invariant=self._scale_inv_head
-                                and record_top == 0)
+            warm = self.forward(
+                warm_ids, pos, scale_invariant=self._scale_inv_head and record_top == 0
+            )
             warm_out = mx.argmax(warm, axis=-1)
             # ...and the drain's stack + device-to-host copy, which likewise
             # only run on the first chunk.
@@ -2280,9 +2412,12 @@ class Runner:
             # its CPU hashing needs the ids as a Python list, which would force
             # a sync.
             profiling = getattr(self, "_phase", None) is not None
-            if (not profiling and self._step_cpu
-                    and self._composed_head() is not None
-                    and self._head_mt_np is not None):
+            if (
+                not profiling
+                and self._step_cpu
+                and self._composed_head() is not None
+                and self._head_mt_np is not None
+            ):
                 # Host step. The composed table is already on the CPU as
                 # float32, so decode is just "gather 32 rows, argmax across
                 # head_vocab" -- a chain whose cost is dispatch, not
@@ -2330,18 +2465,20 @@ class Runner:
                 mt = None if profiling else self._composed_head()
                 # argmax's output dtype must match the priming entry, or the
                 # drain stack would see two element types.
-                prim = mx.array([nxt[r] for r in reps],
-                                dtype=mx.argmax(mx.zeros((2, 2)),
-                                                axis=-1).dtype)
+                prim = mx.array(
+                    [nxt[r] for r in reps], dtype=mx.argmax(mx.zeros((2, 2)), axis=-1).dtype
+                )
                 cur = prim
                 fed: list[mx.array] = []
                 rows: list[np.ndarray] = []
                 for _ in range(max_new_tokens):
                     fed.append(cur)
                     t0 = time.perf_counter()
-                    logits = (mt[cur] if mt is not None else
-                              self.forward(cur, pos,
-                                           scale_invariant=self._scale_inv_head))
+                    logits = (
+                        mt[cur]
+                        if mt is not None
+                        else self.forward(cur, pos, scale_invariant=self._scale_inv_head)
+                    )
                     cur = mx.argmax(logits, axis=-1)
                     steps.append(time.perf_counter() - t0)
                     pos += 1
@@ -2354,8 +2491,7 @@ class Runner:
                 if fed:
                     rows.append(np.array(mx.stack(fed)))
                 decode_s = time.perf_counter() - t_total
-                grid = (np.concatenate(rows) if len(rows) > 1
-                        else rows[0])
+                grid = np.concatenate(rows) if len(rows) > 1 else rows[0]
             for i in range(n):
                 out[i] = [int(v) for v in grid[:, slot_of[i]]]
         else:
@@ -2366,9 +2502,9 @@ class Runner:
                     out[i].append(tok)
                 sub = [nxt[r] for r in reps]
                 t0 = time.perf_counter()
-                logits = self.forward(list(sub), pos,
-                                      scale_invariant=self._scale_inv_head
-                                      and record_top == 0)
+                logits = self.forward(
+                    list(sub), pos, scale_invariant=self._scale_inv_head and record_top == 0
+                )
                 mx.eval(logits)
                 dt = time.perf_counter() - t0
                 decode_s += dt
@@ -2379,10 +2515,13 @@ class Runner:
                     part = np.argpartition(-lg, k - 1, axis=-1)[:, :k]
                     vals = np.take_along_axis(lg, part, axis=-1)
                     order = np.argsort(-vals, axis=-1)
-                    tops.append((np.take_along_axis(part, order, axis=-1),
-                                 np.take_along_axis(vals, order, axis=-1)))
-                sub_next = [int(v) for v in np.argmax(
-                    _np_f32(logits), axis=-1)]
+                    tops.append(
+                        (
+                            np.take_along_axis(part, order, axis=-1),
+                            np.take_along_axis(vals, order, axis=-1),
+                        )
+                    )
+                sub_next = [int(v) for v in np.argmax(_np_f32(logits), axis=-1)]
                 nxt = [sub_next[s] for s in slot_of]
                 pos += 1
         self.end_batch()
@@ -2396,10 +2535,8 @@ class Runner:
             "tok_s": tokens / decode_s if decode_s else 0.0,
             "per_seq_tok_s": (max_new_tokens / decode_s) if decode_s else 0.0,
             "decode_io_s": ld.io_s - pre_io,
-            "decode_pipeline_read_worker_s": (
-                ld.pipeline_read_worker_s - pre_pipe_read),
-            "decode_pipeline_pack_worker_s": (
-                ld.pipeline_pack_worker_s - pre_pipe_pack),
+            "decode_pipeline_read_worker_s": (ld.pipeline_read_worker_s - pre_pipe_read),
+            "decode_pipeline_pack_worker_s": (ld.pipeline_pack_worker_s - pre_pipe_pack),
             "decode_bytes": ld.bytes_read - pre_bytes,
             "decode_load_calls": ld.load_calls - pre_calls,
             "pre_attn_predictions": self._pre_attn_predictions - pre_route[0],
@@ -2433,15 +2570,15 @@ class Runner:
         cfg = self._config
         w_proj = self._dense["mtp.0.main_proj.weight"]
         main_x = main_hidden.astype(mx.float32) @ w_proj.astype(mx.float32).T
-        main_x = F.rmsnorm(main_x, self._dense["mtp.0.main_norm.weight"],
-                           cfg.get("norm_eps", 1e-20))
+        main_x = F.rmsnorm(
+            main_x, self._dense["mtp.0.main_norm.weight"], cfg.get("norm_eps", 1e-20)
+        )
         dummy = mx.zeros((main_x.shape[0], cfg["dim"]))
         for stage in range(int(cfg.get("n_mtp_layers", 0))):
             self.dspark_attention(stage, dummy, 0, main_x)
             mx.eval(self._mtp_window[stage])
 
-    def mtp_draft(self, main_hidden: mx.array, input_ids: list[int],
-                  start_pos: int) -> list[int]:
+    def mtp_draft(self, main_hidden: mx.array, input_ids: list[int], start_pos: int) -> list[int]:
         """DSpark draft: propose block_size tokens after input_ids.
 
         main_hidden: [1, 3*dim] from the target forward that produced the
@@ -2457,8 +2594,9 @@ class Runner:
             return []
         w_proj = self._dense["mtp.0.main_proj.weight"]
         main_x = main_hidden.astype(mx.float32) @ w_proj.astype(mx.float32).T
-        main_x = F.rmsnorm(main_x, self._dense["mtp.0.main_norm.weight"],
-                           cfg.get("norm_eps", 1e-20))  # [1, dim]
+        main_x = F.rmsnorm(
+            main_x, self._dense["mtp.0.main_norm.weight"], cfg.get("norm_eps", 1e-20)
+        )  # [1, dim]
         draft_ids = [noise] * B
         draft_ids[0] = int(input_ids[0])
         h = self.embed(draft_ids)  # [B, dim]
@@ -2469,12 +2607,11 @@ class Runner:
         top_k = int(cfg.get("dspark_n_activated_experts", 3))
         for stage in range(n_mtp):
             h, pre_mix = self.block(
-                stage, h, start_pos, pre_mix, ns="mtp",
-                main_x=main_x, top_k=top_k)
+                stage, h, start_pos, pre_mix, ns="mtp", main_x=main_x, top_k=top_k
+            )
         # forward_head: hc_pre -> mtp.2.norm -> shared head + markov bias
         x = F.hc_pre(h, pre_mix)  # [B, dim]
-        x = F.rmsnorm(x, self._dense["mtp.2.norm.weight"],
-                      cfg.get("norm_eps", 1e-20))
+        x = F.rmsnorm(x, self._dense["mtp.2.norm.weight"], cfg.get("norm_eps", 1e-20))
         if self._head_quant:
             logits = self._head_q_matmul(x)
         else:
@@ -2506,9 +2643,13 @@ class Runner:
             cur = nxt
         return drafts
 
-    def generate_spec(self, prompt_ids: list[int], max_new_tokens: int,
-                      temperature: float = 0.0,
-                      batch_probe: bool = False) -> dict:
+    def generate_spec(
+        self,
+        prompt_ids: list[int],
+        max_new_tokens: int,
+        temperature: float = 0.0,
+        batch_probe: bool = False,
+    ) -> dict:
         """Lossless greedy DSpark speculative decode (#29).
 
         Draft block_size tokens, then validate and commit them using the
@@ -2519,9 +2660,15 @@ class Runner:
         ids = list(prompt_ids)
         times: dict = {}
         stats = {
-            "proposed": 0, "accepted": 0, "steps": 0,
-            "draft_s": 0.0, "verify_s": 0.0, "target_s": 0.0,
-            "rollbacks": 0, "serial_rejects": 0, "full_accepts": 0,
+            "proposed": 0,
+            "accepted": 0,
+            "steps": 0,
+            "draft_s": 0.0,
+            "verify_s": 0.0,
+            "target_s": 0.0,
+            "rollbacks": 0,
+            "serial_rejects": 0,
+            "full_accepts": 0,
             "batch_probe_enabled": bool(batch_probe),
         }
         start = time.perf_counter()
@@ -2597,8 +2744,7 @@ class Runner:
             commit = [chunks[0]]
             for offset, token in enumerate(commit):
                 tt = time.perf_counter()
-                logits, main_hidden = self.forward(
-                    [token], L + offset, want_main=True)
+                logits, main_hidden = self.forward([token], L + offset, want_main=True)
                 mx.eval(logits, main_hidden)
                 stats["target_s"] += time.perf_counter() - tt
             exact_matches = 0
@@ -2622,8 +2768,7 @@ class Runner:
                     commit.append(draft)
                     token = draft
                 tt = time.perf_counter()
-                logits, main_hidden = self.forward(
-                    [token], L + len(commit) - 1, want_main=True)
+                logits, main_hidden = self.forward([token], L + len(commit) - 1, want_main=True)
                 mx.eval(logits, main_hidden)
                 stats["target_s"] += time.perf_counter() - tt
                 if serial_reject:
@@ -2640,7 +2785,7 @@ class Runner:
                     self._trace.token(t)
             if len(out_tokens) > max_new_tokens:
                 out_tokens = out_tokens[:max_new_tokens]
-                ids = ids[:len(prompt_ids) + max_new_tokens]
+                ids = ids[: len(prompt_ids) + max_new_tokens]
 
             stats["steps"] += 1
             decode_s += time.perf_counter() - step_t0
@@ -2653,8 +2798,9 @@ class Runner:
         stats["acceptance"] = acc / prop if prop else 0.0
         return {"tokens": out_tokens, "timings": times, "spec": stats}
 
-    def generate(self, prompt_ids: list[int], max_new_tokens: int,
-                 temperature: float = 0.0) -> dict:
+    def generate(
+        self, prompt_ids: list[int], max_new_tokens: int, temperature: float = 0.0
+    ) -> dict:
         """Prefill + greedy/sampled decode with timing + trace events."""
         ids = list(prompt_ids)
         times = {}
@@ -2668,7 +2814,12 @@ class Runner:
         decode_s = 0.0
         ld = self._expert_loader
         pre_io, pre_pack, pre_up, pre_bytes, pre_calls = (
-            ld.io_s, ld.dequant_s, ld.eval_s, ld.bytes_read, ld.load_calls)
+            ld.io_s,
+            ld.dequant_s,
+            ld.eval_s,
+            ld.bytes_read,
+            ld.load_calls,
+        )
         pre_pipe_read = ld.pipeline_read_worker_s
         pre_pipe_pack = ld.pipeline_pack_worker_s
         pre_engram = self._engram_s
@@ -2702,10 +2853,8 @@ class Runner:
         times["decode_io_s"] = ld.io_s - pre_io
         times["decode_pack_s"] = ld.dequant_s - pre_pack
         times["decode_upload_s"] = ld.eval_s - pre_up
-        times["decode_pipeline_read_worker_s"] = (
-            ld.pipeline_read_worker_s - pre_pipe_read)
-        times["decode_pipeline_pack_worker_s"] = (
-            ld.pipeline_pack_worker_s - pre_pipe_pack)
+        times["decode_pipeline_read_worker_s"] = ld.pipeline_read_worker_s - pre_pipe_read
+        times["decode_pipeline_pack_worker_s"] = ld.pipeline_pack_worker_s - pre_pipe_pack
         times["decode_bytes"] = ld.bytes_read - pre_bytes
         times["decode_expert_loads"] = ld.load_calls - pre_calls
         times["decode_engram_s"] = self._engram_s - pre_engram
@@ -2717,6 +2866,5 @@ class Runner:
         times["expert_cache_hits"] = self.expert_cache_hits
         times["expert_evictions"] = self.expert_evictions
         total = self.expert_loads + self.expert_cache_hits
-        times["expert_hit_rate"] = (
-            self.expert_cache_hits / total if total else 0.0)
+        times["expert_hit_rate"] = self.expert_cache_hits / total if total else 0.0
         return {"tokens": out_tokens, "timings": times}
