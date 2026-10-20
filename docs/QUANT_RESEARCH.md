@@ -161,3 +161,16 @@ teacher-forced through the FP4 reference:
 Note: harness must run prompts one at a time per loaded runner (see
 seq_generate in scripts/quality_q3.py); batched lockstep at n=8 thrashes
 the 256-slot expert cache (~75 s/step wall).
+
+### Larger-sample rank measurement (32 prompts x 48 steps, 2026-10-21)
+
+Re-ran quality_q3.py with 32 prompts (matches Unsloth's long-test-style
+sample size; 1,471 scored tokens):
+
+    rank_mean=1.17  p50=1  p90=1  top1=0.927  top5=0.993
+
+The n=192 estimate (top1 0.848) was pessimistic sampling noise; at this
+sample size the L20-39 3-bit Q3 pilot measures 92.7% top-1 agreement with
+the FP4 reference at -8.1% whole-model bytes. Greedy cross-agreement over
+the longer 48-step horizon stays low (mean per-step match 0.306, 1/32
+identical) - compounding divergence, not a quality signal.
