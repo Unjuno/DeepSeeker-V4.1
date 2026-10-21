@@ -174,3 +174,19 @@ sample size the L20-39 3-bit Q3 pilot measures 92.7% top-1 agreement with
 the FP4 reference at -8.1% whole-model bytes. Greedy cross-agreement over
 the longer 48-step horizon stays low (mean per-step match 0.306, 1/32
 identical) - compounding divergence, not a quality signal.
+
+### Bytes/token at the pilot scope (bench_batch, B=1, 64 steps, cap 256/lru)
+
+Same prompt, streamed decode (official accounting via decode_bytes):
+
+    FP4: 170.65 GiB / 64 tok = 2.67 GiB/tok   (0.473 tok/s)
+    Q3:  150.84 GiB / 64 tok = 2.36 GiB/tok   (0.397 tok/s)
+
+Ratio 0.884 = route-mix x 0.912 theoretical ((120x18.8+120x15.48)/(240x18.8))
+- the FP4 run's later-step routing diverged, so per-variant load counts
+  differ slightly (9746 vs 9450) and the realized cut lands near -11.6%.
+ tok/s in these probes is IO-locality dominated (page-cache state), not a
+ quantization-compute effect; use bytes/token as the metric of record.
+Method note: absolute bytes/token scales with cache miss mix; the honest
+FP4 floor for the pilot scope is 2.67 GiB/tok with a 231 GB payload and
+~9.7k expert streams over 64 steps.
