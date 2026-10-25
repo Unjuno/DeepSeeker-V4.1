@@ -211,3 +211,35 @@ tok/s and bytes/token is the stable metric:
 - Cold-start is the real user-facing pain (161 s vs 63 s wall on the same
   prompt): a boot-time hot-expert prefetch/pin profile (per-layer top-N
   from collected router traces) is the next IO lever worth building.
+
+### Hot-expert pinning (B=1, 64 steps, warm, same prompt; 2026-10-21)
+
+Generated the missing 1017-rev profile with work/collect_hot1017.py
+(32 bench prompts x 16 steps, 171,301 router events, all 384 experts
+observed; per-layer top-64 desc) -> profiles/<1017-rev>/hot_experts.json.
+
+bench_batch now subtracts the pin budget from the LRU cap like bench_mtp
+did (passing the raw cap otherwise doubled the resident budget).
+
+Pin sweep (Q3 unless noted):
+
+    config            tok_s   bytes/tok   expert loads
+    lru 256 (base)    1.36    2.36 GiB    9,450
+    pin4  + lru 96    1.56    3.48        13,867
+    pin6  + lru 16    1.66    2.93        11,800
+    pin8  + lru 1     0.59    5.60        22,532  (LRU collapse)
+    pin12 + lru 1     0.62    5.08        20,451
+    FP4 lru 256       1.28    2.67        9,746
+    FP4 pin6 + lru16  1.53    3.28        11,973
+
+- pin6/layer (192..240 packed experts ~17 GB bf16 resident) is the sweet
+  spot: +23% tok/s for Q3 (1.67 vs 1.36) and +19% for FP4, at the cost of
+  ~+24% streamed bytes (recurrent experts re-read more but stop stalling
+  the miss pipeline).
+- Over-pinning collapses LRU (cap=1): every streaming miss re-reads every
+  step (0.6 tok/s, 5.6 GiB/tok).
+- Q3 keeps extracting a bonus at every config: fewer bytes per stream ->
+  shorter IO within the same wall time.
+- Cold-start remains the biggest wall offender (161s vs 47s same prompt):
+  pins help steady state, but an OS page-cache warm-up (or sudo purge
+  testing) is unmeasured here.

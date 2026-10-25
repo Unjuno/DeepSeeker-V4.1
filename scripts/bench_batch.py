@@ -202,6 +202,8 @@ def main() -> int:
     prompts = [t[:common] for t in token_lists]
 
     pin = None
+    eff_cap = args.expert_cap
+    n_pin = 0
     if args.expert_pin:
         hot = load_json(REPO_ROOT / "profiles" / "deepseek-v4.1-flash"
                         / revision / "hot_experts.json")
@@ -212,8 +214,12 @@ def main() -> int:
         else:
             pin = {int(ly): [int(e) for e in es[:args.expert_pin]]
                    for ly, es in per.items() if str(ly).isdigit()}
-        print(f"PIN top-{args.expert_pin}/layer = "
-              f"{sum(len(v) for v in pin.values())} experts", flush=True)
+        n_pin = sum(len(v) for v in pin.values())
+        # LRU budget excludes pins: expert_lru_budget honors the passed value
+        # verbatim, so passing the raw cap would double the total budget.
+        eff_cap = max(1, args.expert_cap - n_pin)
+        print(f"PIN top-{args.expert_pin}/layer = {n_pin} experts, "
+              f"lru_cap={eff_cap} total_budget={args.expert_cap}", flush=True)
 
     print(f"batch={n} prompt_tokens={common} max_tokens={args.max_tokens} "
           f"cap={args.expert_cap} policy={args.expert_policy} "
@@ -222,7 +228,7 @@ def main() -> int:
           flush=True)
 
     runner = Runner(model_root, manifest, config,
-                    expert_cache_cap=args.expert_cap,
+                    expert_cache_cap=eff_cap,
                     expert_policy=args.expert_policy,
                     expert_pin=pin,
                     max_batch=max(n, 1),
