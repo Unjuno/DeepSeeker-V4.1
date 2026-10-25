@@ -190,3 +190,24 @@ Ratio 0.884 = route-mix x 0.912 theoretical ((120x18.8+120x15.48)/(240x18.8))
 Method note: absolute bytes/token scales with cache miss mix; the honest
 FP4 floor for the pilot scope is 2.67 GiB/tok with a 231 GB payload and
 ~9.7k expert streams over 64 steps.
+
+### Policy sweep (B=1, 64 steps, same prompt; warm vs cold page cache)
+
+Cold page-cache state distorts wall tok/s badly (first lru256 run of the
+day: Q3 0.397 tok/s, 161 s decode); once warm, all configs land at ~1.2-1.4
+tok/s and bytes/token is the stable metric:
+
+    config        FP4 decode  FP4 bytes/tok  Q3 decode  Q3 bytes/tok
+    lru  cap 256     49.9s      2.67 GiB       46.9s      2.36 GiB
+    lfu  cap 256     51.8s      3.25 GiB       50.3s      2.84 GiB
+    lfu  cap 320     51.6s      2.65 GiB       47.5s      2.40 GiB
+
+- LRU/256 is the best setting for both variants; LFU at 256 pin-pollutes
+  (+21% expert bytes: uniform-ish router frequencies make LFU keep stale
+  oldest entries). LFU only recovers at a larger cap.
+- Warm-state Q3@lru256: 2.36 GiB/tok at 1.36 tok/s vs FP4 2.67 at 1.28
+  tok/s - Q3 is not just fewer bytes, it is faster in steady state at
+  this cache size.
+- Cold-start is the real user-facing pain (161 s vs 63 s wall on the same
+  prompt): a boot-time hot-expert prefetch/pin profile (per-layer top-N
+  from collected router traces) is the next IO lever worth building.
