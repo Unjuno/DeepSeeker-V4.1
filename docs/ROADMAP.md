@@ -143,3 +143,51 @@ Analytic ceilings (see FLOWMAP.md): ~11 tok/s single-sequence lossless,
 
 MLX-native runner executed the real router -> #20 traces -> gates ->
 #29/#30 live -> #38/#39 release report. **All roadmap issues closed.**
+
+# 2026-10-20/21 — 64GB quantization track (kv_norm oracle, Q3 pilot, IO tuning)
+
+Session record (small-sample numbers superseded where noted):
+
+## Engine correctness (blocking bug fixed)
+- Greedy generation was garbage in ALL variants: the MLX runner never
+  applied `kv_norm` RMSNorm to the main attention KV (torch ref model.py:706).
+- Localized with a CPU oracle (upstream torch model.py with tilelang
+  kernels replaced by plain math), diffed per-stage vs the engine:
+  embed/hc/norm exact; layer-0-attention cos 0.83 -> cos 0.999996 after the
+  one-line fix; all downstream stages >= 0.99. Commit 60b9ae3.
+- All pre-fix "coherence" observations (ULP, b4/b8 probes) are VOID.
+
+## Q3 pilot: routed experts L20-39 @3-bit (gs=64 affine, MLX-native)
+- Quality (scripts/quality_q3.py, same method as Unsloth's Top-1 match):
+  top1=92.7%, top5=99.3%, rank_mean=1.17, p90=1 (n=1,471 scored tokens,
+  32 prompts x 48 steps). Pilot PASSES the quality gate.
+- Bytes (bench_batch B=1, warm, same prompt): FP4 2.67 GiB/tok vs Q3
+  2.36 GiB/tok (-11.6%, matches the L20-39 mix math x0.912).
+- Speed: Q3 faster than FP4 at every cache config tested (e.g. lru256:
+  1.36 vs 1.28 tok/s; pin6 1.67 vs 1.53). bytes/token is the metric of
+  record; absolute tok/s is page-cache-state sensitive.
+- Policy sweep: LRU/256 optimal; LFU@256 pin-pollutes (+21% bytes);
+  pin6/layer (~17 GB bf16 resident) + LRU16 = +23% tok/s (Q3) / +19% (FP4)
+  vs LRU baseline; over-pinning (LRU<=1) collapses (0.6 tok/s, 5+ GiB/tok).
+- 1017-rev hot_experts.json generated (work/collect_hot1017.py: 171k
+  router events over 32prompts x16steps); bench_batch pin-budget bug fixed.
+- Cold-start is the largest wall offender (161 s vs 47 s on the same
+  prompt; OS page cache for the 231 GB payload). Boot-order warm-up /
+  sudo purge measurement still open.
+
+## Placement vs published data (read-only reference)
+- Unsloth IQ1_M: 88.2% top-1 match @ -50.7% bytes; their curve is
+  whole-model dynamic; ours is uniform 3-bit over half the expert pool,
+  so the residual mismatch traces to 3-bit alone (INFO only; different
+  reference/model).
+
+## Open decisions / next levers
+1. Full-layer Q3 (add L0-19): -17.6% bytes ceiling; needs ~117 GB free
+   (disk at 97%); early layers are more sensitive - re-run the rank gate.
+2. MTP re-measure post-kv_norm-fix (pre-fix MTP closed as 0.32x; the
+   engine it measured was broken).
+3. Boot prefetch / page-cache warm-up study (cold-start).
+4. Push pending (network down all session): `git push -u origin main`.
+
+## Session stats
+- Tests: 264 passing (incl. 9 new test_q3.py). All work committed.
