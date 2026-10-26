@@ -266,3 +266,23 @@ is target-forward serialization, not draft quality; a cross-variant
 scheme (FP4-grid draft / Q3 verify at a~2 from the 92.7% top-1 agreement)
 is the only rearrangement with a plausible byte win, requires new
 engineering.
+
+### Pin warm-up A/B and the cold-start retraction (2026-10-21, later)
+
+Runner now preloads pinned experts' file ranges at startup
+(Runner._warm_pinned_experts, DEEPSEEKER_WARM_PINS=0 to skip; ~3.9 GiB in
+0.6-0.8 s at 8 threads).
+
+Cold-vs-warm A/B after an explicit 231 GB page-cache eviction sweep:
+
+    Q3 pin6/lru16 64 steps:  warm 1.630 tok/s  cold 1.630 tok/s
+    Q3 pin6/lru16 no-warm:   warm 1.629       cold 1.629
+    Q3 lru256 (no pins):     warm 1.673       cold 1.639
+
+With pins, warm-up changes nothing (the pinned bytes are read once into
+the dequant cache either way; warm-up only front-loads that read by <1 s).
+Without pins, cold ~= warm - the ORIGINAL 0.397 tok/s / 161 s outlier is
+NOT page-cache cold (ruled out empirically above); its cause is unexplained
+(possibly one-off allocator/first-run effects after the 11-h harness
+session). The earlier "cold-start is the biggest wall offender" note is
+RETRACTED; current steady-state and cold numbers agree at 1.63-1.67 tok/s.

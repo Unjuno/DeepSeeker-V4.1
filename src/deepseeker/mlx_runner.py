@@ -231,6 +231,16 @@ class Runner:
         # re-read falls back to SSD: measured 4.0x slower decode for the exact
         # same byte count. Hand it back before the first real allocation wave.
         self._trim_metal_pool(force=True)
+        # Cold-start wall was 161 s vs 47 s on the same prompt (page cache for
+        # the 231-237 GB payload). Pinned experts recur every step, so pread
+        # their on-disk runs once at startup to warm exactly those regions;
+        # pure streaming misses still pay cold reads regardless.
+        if (
+            self._expert_pinned
+            and not self._fake_experts
+            and os.environ.get("DEEPSEEKER_WARM_PINS", "1") == "1"
+        ):
+            self._warm_pinned_experts()
         from deepseeker.engram import table_refs_from_manifest
 
         self._refs = table_refs_from_manifest(manifest)
@@ -299,6 +309,45 @@ class Runner:
             mx.set_memory_limit(56 * 1024**3)
         except (RuntimeError, AttributeError):
             pass  # non-Metal backends ignore memory governance
+
+    def _warm_pinned_experts(self) -> None:
+        """Warm OS page cache for pinned experts' packed runs (startup)."""
+        from deepseeker.mlx_weights import read_into
+
+        loader = self._expert_loader
+        chunks = []
+        for ns, ly, ex in self._expert_pinned:
+            for run in loader._expert_runs(ns, ly, ex):
+                chunks.append((run["shard"], run["start"], run["end"]))
+        if not chunks:
+            return
+        total = sum(end - start for _, start, end in chunks)
+        warm_workers = int(os.environ.get("DEEPSEEKER_WARM_THREADS", "8"))
+        buf = bytearray(16 * 1024**2)
+
+        def one(shard: str, start: int, end: int) -> None:
+            pos = start
+            while pos < end:
+                n = min(len(buf), end - pos)
+                view = memoryview(buf)[:n]
+                got = read_into(loader._root, shard, pos, view)
+                if got <= 0:
+                    return
+                pos += got
+
+        t0 = time.perf_counter()
+        pool = ThreadPoolExecutor(max_workers=warm_workers, thread_name_prefix="warm-pins")
+        try:
+            futures = [pool.submit(one, *c) for c in chunks]
+            for fut in futures:
+                fut.result()
+        finally:
+            pool.shutdown()
+        print(
+            f"warm pins: {len(chunks)} runs, {total / 2**20:.0f} MiB "
+            f"in {time.perf_counter() - t0:.1f}s",
+            flush=True,
+        )
 
     def W(self, name: str) -> mx.array:
         return self._dense[name]
