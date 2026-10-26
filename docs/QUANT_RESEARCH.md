@@ -243,3 +243,26 @@ Pin sweep (Q3 unless noted):
 - Cold-start remains the biggest wall offender (161s vs 47s same prompt):
   pins help steady state, but an OS page-cache warm-up (or sudo purge
   testing) is unmeasured here.
+
+### MTP post-kv_norm-fix re-measurement (bench_mtp, 48 tokens, mutex prompt)
+
+The #29 verdict (MTP 0.32x, acceptance 5%) was measured on the broken
+engine, so it was re-run after the kv_norm fix:
+
+    FP4: baseline 1.384 tok/s (2.88 GiB/tok decode) vs spec 1.194
+         -> ratio 0.863, lossless_match=True, acceptance 0.369
+    Q3:  baseline 1.370 tok/s (2.63 GiB/tok decode) vs spec 1.273
+         -> ratio 0.929, lossless_match=True, acceptance 0.271
+
+Acceptance jumped 5% -> 27-37% but still loses wall-clock: the draft is
+cheap (65-70 draft tokens in 2.6-4.1 s = ~20 tok/s) while verify target
+forwards serialize at the full decode step rate, so per accepted token the
+spec path pays ~1 target forward + draft overhead without enough blocked
+accepts (a<=2.5 typical, 0 full-block accepts at block<=5).
+
+Conclusion: MTP remains throughput-negative on this engine/hardware even
+post-fix (ratio 0.86-0.93, improved from 0.32 but still < 1). The blocker
+is target-forward serialization, not draft quality; a cross-variant
+scheme (FP4-grid draft / Q3 verify at a~2 from the 92.7% top-1 agreement)
+is the only rearrangement with a plausible byte win, requires new
+engineering.
