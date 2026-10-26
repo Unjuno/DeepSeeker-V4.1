@@ -214,7 +214,7 @@ tok/s and bytes/token is the stable metric:
 
 ### Hot-expert pinning (B=1, 64 steps, warm, same prompt; 2026-10-21)
 
-Generated the missing 1017-rev profile with work/collect_hot1017.py
+Generated the missing 1017-rev profile with scripts/collect_hot_experts.py
 (32 bench prompts x 16 steps, 171,301 router events, all 384 experts
 observed; per-layer top-64 desc) -> profiles/<1017-rev>/hot_experts.json.
 

@@ -169,7 +169,7 @@ Session record (small-sample numbers superseded where noted):
 - Policy sweep: LRU/256 optimal; LFU@256 pin-pollutes (+21% bytes);
   pin6/layer (~17 GB bf16 resident) + LRU16 = +23% tok/s (Q3) / +19% (FP4)
   vs LRU baseline; over-pinning (LRU<=1) collapses (0.6 tok/s, 5+ GiB/tok).
-- 1017-rev hot_experts.json generated (work/collect_hot1017.py: 171k
+- 1017-rev hot_experts.json generated (scripts/collect_hot_experts.py: 171k
   router events over 32prompts x16steps); bench_batch pin-budget bug fixed.
 - Cold-start is the largest wall offender (161 s vs 47 s on the same
   prompt; OS page cache for the 231 GB payload). Boot-order warm-up /

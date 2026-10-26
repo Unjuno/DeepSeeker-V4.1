@@ -8,9 +8,45 @@ The primary target is a **64 GB M1 Max**. The project goal is simple:
 
 DeepSeeker V4.1 is not affiliated with or endorsed by DeepSeek.
 
-## Status
+## Status: research verdict (2026-10)
 
-Bootstrap / research phase. No performance claim in this repository should be treated as validated until it is accompanied by a reproducible benchmark.
+This was a **time-boxed feasibility probe** for aggressive local inference of
+DeepSeek-V4.1-Flash on one 64 GB M1 Max. It is concluded. The honest summary:
+
+**What works (delivered, tested):**
+- A corrected MLX/CPU streaming inference engine for the official FP4 weights,
+  including a fixed `kv_norm` bug that had silently degraded attention quality
+  (cos 0.83 → 0.999996 vs the torch reference); the engine now produces
+  coherent end-to-end text.
+- A reproducible quality harness (`scripts/quality_q3.py`) that replays
+  generation teacher-forced against an fp32 torch reference and reports
+  top-1/top-5/rank statistics; the repo carries 264 hermetic tests (green)
+  plus CPU-oracle debugging tooling.
+- A validated 3-bit pilot for routed experts L20-39 at
+  **92.7% top-1 match** with the FP4 reference (`n=1,471` token replay),
+  saving **-11.6% bytes per token** (150.8 vs 170.6 GiB/token).
+- Full per-experiment writeups in `docs/QUANT_RESEARCH.md` and
+  `docs/ROADMAP.md`.
+
+**What does not work (the headline finding):**
+- **The 400 tok/s goal is physically out of reach on this hardware** with
+  any lossless or near-lossless configuration. Decode of routed experts alone
+  streams ~3.7 GiB per token; the SSD caps sustained reads at ~6 GiB/s.
+  The measured B=1 steady state (1.63-1.67 tok/s) is already at the
+  bandwidth ceiling, not short of it.
+- Speculative multi-token decode (MTP) was re-measured post-fix:
+  acceptance 27-37%, but throughput 0.86-0.93x (draft is cheap, verification
+  serializes). Not a win.
+- Hot-expert pinning improved latency (+23%) but cannot beat the
+  bandwidth bound; cache-policy sweeps (LRU/LFU, pin sizes) all plateau at
+  the same physical limit.
+
+**Bottom line:** on a 64 GB machine streaming a 231 GB payload, tokens/s is
+governed by `SSD bandwidth / bytes-per-token`. Any further gain requires
+either much lower bits-per-weight (with real quality loss), a bigger unified
+memory machine, or a different storage tier. This repository stands as a
+negative-but-thorough result with a working baseline engine.
+
 
 ## Design principles
 
@@ -75,17 +111,12 @@ See [docs/UPSTREAM.md](docs/UPSTREAM.md) and [THIRD_PARTY_NOTICES.md](THIRD_PART
 
 ```text
 .
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── MACHINE_PROFILE.md
-│   ├── ROADMAP.md
-│   └── UPSTREAM.md
-├── scripts/
-│   └── fetch_upstream.py
-├── src/deepseeker/
-│   └── __init__.py
-├── upstream/
-│   └── README.md
+├── docs/            # ARCHITECTURE, MACHINE_PROFILE, ROADMAP (session logs), QUANT_RESEARCH, UPSTREAM
+├── scripts/         # fetch_upstream, probe_machine, bench_*, quality_q3, requant_experts_3bit, ...
+├── src/deepseeker/  # streaming MLX inference engine + CPU reference + quant/cache tooling
+├── tests/           # 264 hermetic tests (run under DEEPSEEKER_VARIANT=1017 for the real weights)
+├── upstream/        # ignored; official DeepSeek reference code fetched by scripts/fetch_upstream.py
+├── models/          # ignored; local checkpoint + generated quantized payloads (not committed)
 ├── .gitignore
 ├── LICENSE
 ├── THIRD_PARTY_NOTICES.md
@@ -108,7 +139,11 @@ The first Go/No-Go criterion is not a headline tokens/s number. It is whether th
 
 ## Performance claims
 
-The long-term research target is very high decode throughput on the target M1 Max, but **400 tok/s is a stretch target, not a current result**. All reported numbers should include hardware, OS version, model revision, context length, sampling configuration, batch/speculation settings, and whether the number is accepted output tokens/s.
+All numbers quoted in `docs/` include hardware, OS version, model revision,
+context length, sampling configuration, and batch/speculation settings. The
+historical 400 tok/s stretch target is **concluded as not viable** on this
+hardware class; see the Status section above and `docs/ROADMAP.md` for the
+measured physics.
 
 ## License
 
