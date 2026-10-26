@@ -8,45 +8,64 @@ The primary target is a **64 GB M1 Max**. The project goal is simple:
 
 DeepSeeker V4.1 is not affiliated with or endorsed by DeepSeek.
 
-## Status: research verdict (2026-10)
+## Research verdict (2026-10): concluded
 
-This was a **time-boxed feasibility probe** for aggressive local inference of
-DeepSeek-V4.1-Flash on one 64 GB M1 Max. It is concluded. The honest summary:
+This was a **time-boxed feasibility probe**: can a stock 64 GB M1 Max run
+DeepSeek-V4.1-Flash (a 231 GB MoE) locally with fast, quality-preserving
+decode? The answer is **"yes, but only slowly — and 10x faster is physics,
+not engineering."**
 
-**What works (delivered, tested):**
-- A corrected MLX/CPU streaming inference engine for the official FP4 weights,
-  including a fixed `kv_norm` bug that had silently degraded attention quality
-  (cos 0.83 → 0.999996 vs the torch reference); the engine now produces
-  coherent end-to-end text.
-- A reproducible quality harness (`scripts/quality_q3.py`) that replays
-  generation teacher-forced against an fp32 torch reference and reports
-  top-1/top-5/rank statistics; the repo carries 264 hermetic tests (green)
-  plus CPU-oracle debugging tooling.
-- A validated 3-bit pilot for routed experts L20-39 at
-  **92.7% top-1 match** with the FP4 reference (`n=1,471` token replay),
-  saving **-11.6% bytes per token** (150.8 vs 170.6 GiB/token).
-- Full per-experiment writeups in `docs/QUANT_RESEARCH.md` and
+### What we did
+
+1. **Built a streaming inference engine** for the official checkpoint from
+   the MLX stack: dense weights resident, routed experts paged from the SSD
+   by a cache policy, attention/decode in Metal.
+2. **Hunted the quality bug** that produced garbage text: a missing
+   `kv_norm` RMSNorm in the attention path, localized with a CPU torch
+   oracle (cos 0.83 → 0.999996 after the fix) and verified by coherent
+   end-to-end generation.
+3. **Quantized the dominant cost.** Routed experts are ~90% of the bytes a
+   decode streams. We built a 3-bit payload for experts in layers 20-39 and
+   verified it against the fp32/FP4 reference.
+4. **Attacked the cache and the scheduler**: LRU/LFU/swept cache sizes,
+   hot-expert pinning generated from a 171k-token router trace, startup
+   warm-up of pinned experts, prefetcher, and multi-token (MTP) speculative
+   decode — each individually measured on the target machine.
+
+### What worked
+
+- **The engine works.** Coherent lossless-quality output at the official
+  weights, with a reproducible quality harness (`scripts/quality_q3.py`)
+  that replays generation teacher-forced against a torch fp32 reference
+  (top-1/top-5/rank stats) and 264 passing tests.
+- **3-bit routed experts (L20-39) hold quality**: **92.7% top-1 match**
+  vs the FP4 reference over a 1,471-token replay, at **-11.6% bytes/token**
+  (150.8 vs 170.6 GiB/token) and slightly *faster* warm steady-state.
+- **Hot-expert pinning + LRU16** gives ~+23% tokens/s on cold-heavy runs
+  with +~24% streamed bytes.
+- Complete per-experiment writeups in `docs/QUANT_RESEARCH.md` and
   `docs/ROADMAP.md`.
 
-**What does not work (the headline finding):**
-- **The 400 tok/s goal is physically out of reach on this hardware** with
-  any lossless or near-lossless configuration. Decode of routed experts alone
-  streams ~3.7 GiB per token; the SSD caps sustained reads at ~6 GiB/s.
-  The measured B=1 steady state (1.63-1.67 tok/s) is already at the
-  bandwidth ceiling, not short of it.
-- Speculative multi-token decode (MTP) was re-measured post-fix:
-  acceptance 27-37%, but throughput 0.86-0.93x (draft is cheap, verification
-  serializes). Not a win.
-- Hot-expert pinning improved latency (+23%) but cannot beat the
-  bandwidth bound; cache-policy sweeps (LRU/LFU, pin sizes) all plateau at
-  the same physical limit.
+### What did not work (result)
 
-**Bottom line:** on a 64 GB machine streaming a 231 GB payload, tokens/s is
-governed by `SSD bandwidth / bytes-per-token`. Any further gain requires
-either much lower bits-per-weight (with real quality loss), a bigger unified
-memory machine, or a different storage tier. This repository stands as a
-negative-but-thorough result with a working baseline engine.
+- **The 400 tok/s goal is physically unreachable on this hardware.** Routed
+  experts alone stream ~3.7 GiB per token; the SSD sustains ~6 GiB/s.
+  Measured B=1 steady state: **1.63-1.67 tok/s — already at the bandwidth
+  ceiling**, across every policy/quantization/pin configuration tried.
+- **Speculative decode (MTP) is throughput-negative**: acceptance 27-37%,
+  but 0.86-0.93x net speed (draft is cheap; verification serializes).
+- Cache-policy work (LRU vs LFU, pin sizes, warm-up) all converge to the
+  same physical limit; pinning trades bytes for latency and nothing more.
 
+### Bottom line
+
+Throughput on this machine is governed by `SSD bandwidth / bytes-per-token`.
+A 3-bit full-model run would need ~117 GB more storage than was available
+and further bit reduction trades away the quality invariant this project
+was built on. So the project stops here: a working baseline engine, one
+validated quantization dialect, and a set of measured negative results —
+the 10x jump would require more unified memory, a faster storage tier, or
+accepting real quality loss.
 
 ## Design principles
 
