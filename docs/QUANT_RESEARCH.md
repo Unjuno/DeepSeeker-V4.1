@@ -1,5 +1,12 @@
 # Quantization research: what to "drop" on DeepSeek-V4.1-Flash-1017 (2026-10-19)
 
+> **Verdict:** best lossless-adjacent result = 3-bit routed experts L20-39
+> (92.7% top-1 match, -11.6% bytes/token, slight speedup). Every further step
+> (2-bit territory, full-layer variants) fails the quality gate or the disk
+> budget. MTP decode is throughput-negative (0.86-0.93x). No path on this
+> machine reaches a materially higher tokens/s than the FP4 baseline's
+> 1.6-1.7 tok/s B=1 bandwidth ceiling. Details below.
+
 Goal: cut the dominant per-token byte driver (routed experts, currently
 native MXFP4) while keeping quality as close to the official checkpoint as
 possible. This note surveys 2025-2026 literature relevant to doing that

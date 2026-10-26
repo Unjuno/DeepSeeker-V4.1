@@ -1,5 +1,12 @@
 # Roadmap (status as of 2026-09-23; see #40) — **all issues CLOSED (0 open)**
 
+> **Project verdict (2026-10-21): CONCLUDED.** The 400 tok/s stretch target is
+> not viable on 64 GB M1 Max: routed-expert decode streams ~3.7 GiB/token and
+> SSD bandwidth (~6 GiB/s) caps B=1 steady state at 1.6-1.7 tok/s — measured
+> LRU/LFU/pin/MTP/Q3 all plateau at that physics. What survives: a working,
+> quality-verified streaming engine and a validated 3-bit pilot (92.7% top-1,
+> -11.6% bytes/token). Full records in [QUANT_RESEARCH.md](QUANT_RESEARCH.md).
+
 The ordering is designed to falsify weak ideas early and delay expensive kernel work until the routing/memory data justifies it.
 
 ## P0 — Bootstrap and upstream reference
