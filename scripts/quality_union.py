@@ -74,7 +74,7 @@ def main() -> int:
     manifest = load_json(
         REPO_ROOT / "profiles" / "deepseek-v4.1-flash" / revision / "model-manifest.json")
     config = load_json(snapshot / "inference" / "config.json")
-    model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    model_root = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
     tokenizer = AutoTokenizer.from_pretrained(str(model_root))
 
     texts = (DEFAULT_PROMPTS * ((n // len(DEFAULT_PROMPTS)) + 1))[:n]

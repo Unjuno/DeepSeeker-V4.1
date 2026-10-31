@@ -19,7 +19,7 @@ from deepseeker.mlx_runner import Runner
 rev = load_json(REPO / "upstream/DeepSeek-V4.1-Flash/DEEPSEEKER_UPSTREAM.json")["resolved_revision"]
 manifest = load_json(REPO / "profiles" / "deepseek-v4.1-flash" / rev / "model-manifest.json")
 config = load_json(REPO / "upstream/DeepSeek-V4.1-Flash/inference" / "config.json")
-model_root = REPO / "models" / "DeepSeek-V4.1-Flash"
+model_root = REPO / "models" / "DeepSeek-V4.1-Flash-1017"
 tok = AutoTokenizer.from_pretrained(str(model_root))
 ids = tok.encode(encode_messages([{"role": "user", "content": "Say hello."}], "chat"))
 

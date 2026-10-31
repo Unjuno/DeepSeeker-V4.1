@@ -29,6 +29,6 @@ def paths_for_variant(revision: str, repo_root: Path, snapshot_name: str,
     else:
         manifest_name = "model-manifest.json"
         root = repo_root / "models" / snapshot_name
-    fallback = repo_root / "models" / "DeepSeek-V4.1-Flash"
+    fallback = repo_root / "models" / "DeepSeek-V4.1-Flash-1017"
     return (root if root.exists() else fallback,
             profile / manifest_name)

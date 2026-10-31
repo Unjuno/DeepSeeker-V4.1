@@ -7,7 +7,7 @@
     python scripts/manage_checkpoint.py status
 
 One physical copy under an ignored model root (default
-``models/DeepSeek-V4.1-Flash``). Downloads resume per shard, hash
+``models/DeepSeek-V4.1-Flash-1017``). Downloads resume per shard, hash
 SHA-256 while streaming, and reconcile headers against the Issue #2
 manifest. Never touches Git history with weight bytes.
 """
@@ -63,7 +63,7 @@ def model_root(args) -> Path:
     env = os.environ.get("DEEPSEEKER_MODEL_ROOT")
     if env:
         return Path(env)
-    return REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    return REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
 
 
 def load_manifest() -> dict:

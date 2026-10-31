@@ -41,7 +41,7 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         print(f"FAIL: {exc}")
         return 2
-    model_root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    model_root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
     revision = load_json(
         REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
     )["resolved_revision"]

@@ -10,7 +10,7 @@ python scripts/manage_checkpoint.py status [--write-status]
 ```
 
 Model root precedence: `--model-root` > `DEEPSEEKER_MODEL_ROOT` >
-default `models/DeepSeek-V4.1-Flash` (Git-ignored; enforced, not assumed).
+default `models/DeepSeek-V4.1-Flash-1017` (Git-ignored; enforced, not assumed).
 
 ## Method
 

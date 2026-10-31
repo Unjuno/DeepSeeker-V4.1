@@ -139,7 +139,7 @@ def main() -> int:
         modes = ("independent", "joint")
     else:
         modes = (args.mode,)
-    model_root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    model_root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
     snapshot = REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash"
     config = load_json(snapshot / "inference" / "config.json")
     revision = load_json(snapshot / "DEEPSEEKER_UPSTREAM.json")["resolved_revision"]

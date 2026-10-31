@@ -2,7 +2,7 @@
 """Issue #7: verify the vendored DeepSeek-V4.1-Flash reference locally.
 
     python scripts/verify_reference.py
-    python scripts/verify_reference.py --model-root models/DeepSeek-V4.1-Flash
+    python scripts/verify_reference.py --model-root models/DeepSeek-V4.1-Flash-1017
 
 Static checks run without weights. Exit 0 only when every blocking check
 passes; advisory checks (runtime deps, checkpoint completion) are reported

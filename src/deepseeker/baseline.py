@@ -302,4 +302,4 @@ def resolve_model_root(repo_root: Path, override: Path | None = None) -> Path:
     env = os.environ.get("DEEPSEEKER_MODEL_ROOT")
     if env:
         return Path(env)
-    return repo_root / "models" / "DeepSeek-V4.1-Flash"
+    return repo_root / "models" / "DeepSeek-V4.1-Flash-1017"

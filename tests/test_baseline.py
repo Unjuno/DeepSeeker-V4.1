@@ -115,7 +115,7 @@ def test_checkpoint_readiness_reports_progress(tmp_path):
 
 
 def test_resolve_model_root_never_cwd(tmp_path, monkeypatch):
-    default = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    default = REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
     monkeypatch.delenv("DEEPSEEKER_MODEL_ROOT", raising=False)
     assert resolve_model_root(REPO_ROOT) == default
     monkeypatch.setenv("DEEPSEEKER_MODEL_ROOT", "")

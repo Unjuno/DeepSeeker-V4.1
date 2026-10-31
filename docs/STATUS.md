@@ -7,7 +7,7 @@ Upstream pin: dba1be0a40aa45a94ad051997016db3960a90277 (all issues).
 
 - 48/48 shards verified (verify: 48/48 PASS, 510,296,708,312 bytes) + 4 small files.
 - Local status reported complete: true with sha256-vs-upstream-lfs + manifest reconciliation.
-- Footprint: ~475GB under Git-ignored models/DeepSeek-V4.1-Flash/.
+- Footprint: ~475GB under Git-ignored models/DeepSeek-V4.1-Flash-1017/.
 - Incidents during fetch were resolved: duplicate downloader processes,
   per-connection decay, and checksum-mismatch retries.
 

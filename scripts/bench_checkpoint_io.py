@@ -130,7 +130,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
 
-    root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash"
+    root = args.model_root or REPO_ROOT / "models" / "DeepSeek-V4.1-Flash-1017"
     revision = load_json(
         REPO_ROOT / "upstream" / "DeepSeek-V4.1-Flash" / "DEEPSEEKER_UPSTREAM.json"
     )["resolved_revision"]

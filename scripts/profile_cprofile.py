@@ -29,7 +29,7 @@ def main() -> int:
     rev = load_json(snap / "DEEPSEEKER_UPSTREAM.json")["resolved_revision"]
     manifest = load_json(REPO / "profiles" / "deepseek-v4.1-flash" / rev / "model-manifest.json")
     config = load_json(snap / "inference" / "config.json")
-    root = REPO / "models" / "DeepSeek-V4.1-Flash"
+    root = REPO / "models" / "DeepSeek-V4.1-Flash-1017"
     tok = AutoTokenizer.from_pretrained(str(root))
     ids = tok.encode(encode_messages([{"role": "user", "content": "Say hello."}], "chat"))
 

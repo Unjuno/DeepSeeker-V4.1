@@ -65,7 +65,7 @@ def test_paths_for_variant_manifest_selection(tmp_path):
 
     root, manifest = paths_for_variant(revision, tmp_path, "DeepSeek-V4.1-Flash")
     assert manifest == profile / "model-manifest.json"
-    assert root == tmp_path / "models" / "DeepSeek-V4.1-Flash"
+    assert root == tmp_path / "models" / "DeepSeek-V4.1-Flash-1017"
 
     old = os.environ.get("DEEPSEEKER_Q3_MANIFEST")
     try:

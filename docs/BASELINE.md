@@ -43,7 +43,7 @@ Advisory checks (reported, never fail):
 
 1. `python scripts/manage_checkpoint.py verify` → 48/48 PASS.
 2. `pip install -r upstream/DeepSeek-V4.1-Flash/inference/requirements.txt`
-3. `convert.py --hf-ckpt-path models/DeepSeek-V4.1-Flash --save-path <TP8> --model-parallel 8`
+3. `convert.py --hf-ckpt-path models/DeepSeek-V4.1-Flash-1017 --save-path <TP8> --model-parallel 8`
 4. `INPUT_FILE=inference/examples/example_harmony.json CKPT_PATH=<TP8> ./inference/run.sh`
 
 Record results per the benchmark rule in `docs/ROADMAP.md`. No predictive
