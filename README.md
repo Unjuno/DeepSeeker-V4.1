@@ -88,9 +88,9 @@ Other Apple Silicon systems may work later, but portability is not the first obj
 
 Before optimization work, collect the target-machine baseline defined in [docs/MACHINE_PROFILE.md](docs/MACHINE_PROFILE.md).
 
-## Planned optimization surface
+## Optimization surface
 
-DeepSeeker is intentionally broader than a MoE cache experiment. Candidate work includes:
+DeepSeeker was intentionally broader than a MoE cache experiment. The original candidate surface:
 
 - online future-expert prediction and resident expert groups
 - layer/token lookahead and asynchronous prefetch
@@ -142,7 +142,7 @@ See [docs/UPSTREAM.md](docs/UPSTREAM.md) and [THIRD_PARTY_NOTICES.md](THIRD_PART
 └── pyproject.toml
 ```
 
-## First research milestone
+## Original first research milestone (completed)
 
 Before implementing aggressive kernels, collect the real routing trace and measure:
 
@@ -154,7 +154,7 @@ Before implementing aggressive kernels, collect the real routing trace and measu
 - KV/index/Engram traffic per accepted output token
 - GPU idle time and Unified Memory bandwidth
 
-The first Go/No-Go criterion is not a headline tokens/s number. It is whether the observed routing and memory-access structure provides enough reuse and predictability to hide storage latency and reduce DRAM traffic.
+The first Go/No-Go criterion is not a headline tokens/s number. It is whether the observed routing and memory-access structure provides enough reuse and predictability to hide storage latency and reduce DRAM traffic. The trace was collected, and the answer at B=1 on M1 Max 64 GB is **No / partial**: routing is highly predictable but expert streams at ~3.7 GiB/token, hitting the SSD bandwidth ceiling (see the verdict above and `docs/ROADMAP.md`).
 
 ## Performance claims
 
